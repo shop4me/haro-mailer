@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+{% block body %}
+<h2 class="page-title">Mailboxes</h2>
+<div class="card" id="mailbox-form">
+  <h3 class="card-title">{{ 'Edit mailbox' if edit_mailbox else 'Add or update mailbox' }}</h3>
+  <p class="muted" style="margin:-8px 0 16px; font-size:0.9rem;">One <strong>email and password</strong> for both receiving (IMAP) and sending (SMTP). If you leave SMTP host empty, replies use each business&rsquo;s SMTP settings instead.</p>
+  <form method="post">
+    <div class="form-grid">
+      <div class="form-group">
+        <label for="id">ID (for update)</label>
+        <input id="id" name="id" type="number" placeholder="Leave empty for new" value="{{ edit_mailbox.id if edit_mailbox else '' }}" {{ 'readonly' if edit_mailbox else '' }} />
+      </div>
+      <div class="form-group">
+        <label for="label">Label *</label>
+        <input id="label" name="label" type="text" required placeholder="e.g. HARO inbox" value="{{ edit_mailbox.label if edit_mailbox else '' }}" />
+      </div>
+      <div class="form-group">
+        <label for="imap_user">Email</label>
+        <input id="imap_user" name="imap_user" type="text" placeholder="user@example.com" autocomplete="username" value="{{ edit_mailbox.imap_user if edit_mailbox else '' }}" />
+      </div>
+      <div class="form-group">
+        <label for="imap_password">Password{% if edit_mailbox %} <span class="muted">(loaded from database)</span>{% endif %}</label>
+        <input id="imap_password" name="imap_password" type="password" placeholder="{% if edit_mailbox %}Change only if you want a new password{% else %}App password{% endif %}" autocomplete="current-password" value="{{ edit_mailbox.imap_password if edit_mailbox else '' }}" />
+      </div>
+    </div>
+    <h4 class="form-section-title">Incoming (IMAP)</h4>
+    <div class="form-grid">
+      <div class="form-group">
+        <label for="imap_host">IMAP host</label>
+        <input id="imap_host" name="imap_host" type="text" placeholder="imap.gmail.com" value="{{ edit_mailbox.imap_host if edit_mailbox else '' }}" />
+      </div>
+      <div class="form-group">
+        <label for="imap_port">IMAP port</label>
+        <input id="imap_port" name="imap_port" type="number" value="{{ edit_mailbox.imap_port if edit_mailbox else 993 }}" placeholder="993" />
+      </div>
+      <div class="form-group">
+        <label for="folder">Folder</label>
+        <input id="folder" name="folder" type="text" value="{{ edit_mailbox.folder if edit_mailbox else 'INBOX' }}" placeholder="INBOX" />
+      </div>
+    </div>
+    <h4 class="form-section-title">Outgoing (SMTP) <span class="form-section-optional">optional</span></h4>
+    <p class="muted" style="margin:-8px 0 12px; font-size:0.85rem;">Uses the same email and password above. <strong>Port 465</strong> = SSL (implicit TLS). <strong>Port 587</strong> = STARTTLS. If one times out or disconnects, try the other—your host&rsquo;s docs list which to use. The visible <em>From</em> on replies still comes from each business&rsquo;s sending address.</p>
+    <div class="form-grid">
+      <div class="form-group">
+        <label for="smtp_host">SMTP host</label>
+        <input id="smtp_host" name="smtp_host" type="text" placeholder="smtp.gmail.com" value="{{ edit_mailbox.smtp_host if edit_mailbox else '' }}" />
+      </div>
+      <div class="form-group">
+        <label for="smtp_port">SMTP port</label>
+        <input id="smtp_port" name="smtp_port" type="number" value="{{ edit_mailbox.smtp_port if edit_mailbox else 587 }}" placeholder="587 or 465" />
+      </div>
+    </div>
+    <h4 class="form-section-title">Options</h4>
+    <div class="form-grid">
+      <div class="form-group">
+        <div class="checkbox-row">
+          <input id="enabled" name="enabled" type="checkbox" {{ 'checked' if not edit_mailbox or edit_mailbox.enabled else '' }} />
+          <label for="enabled">Enabled</label>
+        </div>
+      </div>
+      <div class="form-group">
+        <div class="checkbox-row">
+          <input id="use_for_haro" name="use_for_haro" type="checkbox" {{ 'checked' if edit_mailbox and edit_mailbox.use_for_haro|default(false) else '' }} />
+          <label for="use_for_haro">Use for HARO fetch</label>
+        </div>
+        <span style="font-size:0.85rem; color:var(--text-muted);">Only one mailbox is used to download and parse HARO emails. Check this for the HARO inbox.</span>
+      </div>
+      <div class="form-group">
+        <div class="checkbox-row">
+          <input id="imap_skip_ssl_verify" name="imap_skip_ssl_verify" type="checkbox" {{ 'checked' if edit_mailbox and edit_mailbox.imap_skip_ssl_verify|default(false) else '' }} />
+          <label for="imap_skip_ssl_verify">Skip SSL certificate verification (IMAP)</label>
+        </div>
+        <span style="font-size:0.85rem; color:var(--text-muted);">Use only if the server uses a mismatched cert (e.g. connecting by IP).</span>
+      </div>
+    </div>
+    <div class="form-actions form-actions-mailbox">
+      <button type="button" id="mailbox-test-btn" class="btn btn-secondary">Test connection</button>
+      <button type="submit" class="btn btn-primary">Save mailbox</button>
+      {% if edit_mailbox %}
+      <a href="{{ url_for('main.mailboxes') }}#mailbox-form" class="btn">Cancel</a>
+      {% endif %}
+    </div>
+    <div id="mailbox-test-result" class="mailbox-test-result" role="status" aria-live="polite" hidden></div>
+  </form>
+</div>
+<script>
+(function() {
+  var btn = document.getElementById('mailbox-test-btn');
+  var out = document.getElementById('mailbox-test-result');
+  if (!btn || !out) return;
+  var form = btn.closest('form');
+  btn.addEventListener('click', function() {
+    var fd = new FormData(form);
+    var body = {
+      id: (fd.get('id') || '').toString().trim(),
+      imap_host: fd.get('imap_host') || '',
+      imap_port: fd.get('imap_port') || '993',
+      imap_user: fd.get('imap_user') || '',
+      imap_password: fd.get('imap_password') || '',
+      folder: fd.get('folder') || 'INBOX',
+      imap_skip_ssl_verify: fd.get('imap_skip_ssl_verify') === 'on',
+      smtp_host: fd.get('smtp_host') || '',
+      smtp_port: fd.get('smtp_port') || '587'
+    };
+    out.hidden = false;
+    out.className = 'mailbox-test-result mailbox-test-pending';
+    out.textContent = 'Testing IMAP and SMTP…';
+    fetch('{{ url_for("main.mailboxes_test") }}', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(body)
+    }).then(function(r) { return r.json().then(function(data) { return { ok: r.ok, data: data }; }); })
+    .then(function(res) {
+      var d = res.data;
+      var ok = d.ok === true;
+      out.className = 'mailbox-test-result ' + (ok ? 'mailbox-test-ok' : 'mailbox-test-err');
+      out.textContent = d.message || (ok ? 'OK' : 'Failed');
+    }).catch(function(e) {
+      out.className = 'mailbox-test-result mailbox-test-err';
+      out.textContent = 'Request failed: ' + (e && e.message ? e.message : String(e));
+    });
+  });
+})();
+</script>
+<div class="card">
+  <h3 class="card-title">Existing mailboxes</h3>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Label</th>
+          <th>IMAP host</th>
+          <th>Email</th>
+          <th>SMTP</th>
+          <th>Enabled</th>
+          <th>Use for HARO</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="mailboxes-tbody">
+        {% for row in rows %}
+        <tr class="mailbox-row">
+          <td>{{ row.id }}</td>
+          <td>{{ row.label }}</td>
+          <td>{{ row.imap_host }}</td>
+          <td>{{ row.imap_user }}</td>
+          <td>{% if row.smtp_host %}Yes{% else %}—{% endif %}</td>
+          <td>{{ 'Yes' if row.enabled else 'No' }}</td>
+          <td>{{ 'Yes' if row.use_for_haro|default(false) else 'No' }}</td>
+          <td>
+            <div class="table-actions">
+              <a href="{{ url_for('main.mailboxes', edit=row.id) }}#mailbox-form" class="table-icon-btn" title="Edit mailbox" aria-label="Edit mailbox">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              </a>
+              <form method="post" action="{{ url_for('main.mailbox_delete', mailbox_id=row.id) }}" class="inline-form mailbox-delete-form">
+                <button type="submit" class="table-icon-btn table-icon-btn-danger" title="Delete mailbox" aria-label="Delete mailbox">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                </button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr class="mailbox-row mailbox-empty-row"><td colspan="8" class="empty-state">No mailboxes yet. Add one above.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+<script>
+(function() {
+  var tbody = document.getElementById('mailboxes-tbody');
+  if (!tbody) return;
+  var emptyRowHtml = '<tr class="mailbox-row mailbox-empty-row"><td colspan="8" class="empty-state">No mailboxes yet. Add one above.</td></tr>';
+  tbody.addEventListener('submit', function(e) {
+    var form = e.target;
+    if (!form.classList.contains('mailbox-delete-form')) return;
+    e.preventDefault();
+    if (!confirm('Delete this mailbox? All HARO emails stored for this mailbox will be removed.')) return;
+    var row = form.closest('tr');
+    fetch(form.action, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Accept': 'text/html, application/json', 'X-Requested-With': 'XMLHttpRequest' }
+    })
+      .then(function(r) { return (r.ok || r.status === 302) ? Promise.resolve() : Promise.reject(new Error(r.status)); })
+      .then(function() {
+        var deletedId = (row.querySelector('td') && row.querySelector('td').textContent || '').trim();
+        var editInput = document.getElementById('id');
+        var editingId = editInput && editInput.value ? String(editInput.value).trim() : '';
+        row.remove();
+        if (tbody.querySelectorAll('tr.mailbox-row:not(.mailbox-empty-row)').length === 0) {
+          tbody.insertAdjacentHTML('beforeend', emptyRowHtml);
+        }
+        if (editingId && deletedId === editingId) {
+          window.location.href = '{{ url_for("main.mailboxes") }}#mailbox-form';
+        }
+      })
+      .catch(function() { alert('Delete failed.'); });
+  });
+})();
+</script>
+{% endblock %}

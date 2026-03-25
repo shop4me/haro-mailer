@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block body %}
+<h2 class="page-title">HARO Requests</h2>
+<form method="get" class="filter-bar">
+  <div class="form-group">
+    <label for="business_id">Business</label>
+    <select id="business_id" name="business_id">
+      <option value="">All</option>
+      {% for b in businesses %}
+      <option value="{{ b.id }}" {% if request.args.get('business_id')|int == b.id %}selected{% endif %}>{{ b.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="form-group">
+    <label for="min_conf">Min confidence</label>
+    <input id="min_conf" name="min_conf" type="number" step="0.01" min="0" max="1" placeholder="0–1" value="{{ request.args.get('min_conf', '') }}" />
+  </div>
+  <div class="form-group">
+    <label for="status">Status</label>
+    <select id="status" name="status">
+      <option value="">All</option>
+      <option value="DRAFT" {% if request.args.get('status') == 'DRAFT' %}selected{% endif %}>Draft</option>
+      <option value="SENT" {% if request.args.get('status') == 'SENT' %}selected{% endif %}>Sent</option>
+      <option value="FAILED" {% if request.args.get('status') == 'FAILED' %}selected{% endif %}>Failed</option>
+      <option value="SKIPPED" {% if request.args.get('status') == 'SKIPPED' %}selected{% endif %}>Skipped</option>
+    </select>
+  </div>
+  <button type="submit" class="btn btn-secondary">Filter</button>
+</form>
+<div class="table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Received</th>
+        <th>Category</th>
+        <th>Outlet</th>
+        <th>Deadline</th>
+        <th>Match</th>
+        <th>Conf</th>
+        <th>Reply</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for req, cls, rep in rows %}
+      <tr>
+        <td>{{ req.id }}</td>
+        <td>{{ req.created_at|format_datetime or '—' }}</td>
+        <td>{{ req.category }}</td>
+        <td>{{ req.outlet or '—' }}</td>
+        <td>{{ req.deadline or '—' }}</td>
+        <td>{{ cls.matched_business_id if cls else '—' }}</td>
+        <td>{{ '%.2f'|format(cls.confidence) if cls else '—' }}</td>
+        <td>{% if rep %}<span class="badge badge-{{ rep.send_status|lower }}">{{ rep.send_status }}</span>{% else %}—{% endif %}</td>
+        <td><a href="{{ url_for('main.haro_request_detail', request_id=req.id) }}" class="link">View</a></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="9" class="empty-state">No HARO requests yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

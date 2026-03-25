@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block body %}
+<h2 class="page-title">Inbound Emails</h2>
+
+<div id="inbound-poll-banner" class="inbound-poll-banner" role="status" aria-live="polite">
+  <span class="inbound-spinner-wrap" id="inbound-spinner-wrap" hidden>
+    <span class="inbound-spinner" aria-hidden="true"></span>
+  </span>
+  <div class="inbound-poll-text-wrap">
+    <span id="inbound-poll-line" class="inbound-poll-line"></span>
+    <span id="inbound-poll-hint" class="inbound-poll-hint muted"></span>
+  </div>
+</div>
+
+<p class="muted" style="margin:-4px 0 16px; font-size:0.9rem;">Messages from the mailbox marked <strong>Use for HARO fetch</strong> (Mailboxes). Scheduled poll about every {{ settings.poll_interval_minutes }} minutes; saving a mailbox also triggers an immediate fetch.</p>
+
+<div class="table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Subject <span id="inbound-subject-spinner" class="inbound-mini-spinner" hidden title=""></span></th>
+        <th>Source</th>
+        <th>Received <span id="inbound-received-spinner" class="inbound-mini-spinner" hidden title=""></span></th>
+        <th>Status</th>
+        <th>Parsed</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td>{{ row.subject[:60] }}{% if row.subject|length > 60 %}…{% endif %}</td>
+        <td><span class="badge badge-{{ 'haro' if row.source == 'haro' else 'default' }}">{{ row.source }}</span></td>
+        <td>{{ row.received_at|format_datetime or '—' }}</td>
+        <td>{{ row.status }}</td>
+        <td>
+          {% set n = found_counts.get(row.id, 0) %}
+          {% if n > 0 %}
+          <a href="{{ url_for('main.inbound_found', inbound_id=row.id) }}">{{ n }}</a>
+          {% else %}
+          <a href="{{ url_for('main.inbound_found', inbound_id=row.id) }}">0</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="empty-state">No messages from your HARO mailbox yet. Under Mailboxes, enable one account, check <strong>Use for HARO fetch</strong>, confirm IMAP folder (usually INBOX), then save — the app will fetch immediately. Watch the status above for progress.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<script>
+(function() {
+  var banner = document.getElementById('inbound-poll-banner');
+  var spinWrap = document.getElementById('inbound-spinner-wrap');
+  var lineEl = document.getElementById('inbound-poll-line');
+  var hintEl = document.getElementById('inbound-poll-hint');
+  var subSpin = document.getElementById('inbound-subject-spinner');
+  var recSpin = document.getElementById('inbound-received-spinner');
+  var url = '{{ url_for("main.poll_status") }}';
+  var pollMs = 1500;
+
+  function setLoading(on) {
+    if (spinWrap) spinWrap.hidden = !on;
+    if (subSpin) subSpin.hidden = !on;
+    if (recSpin) recSpin.hidden = !on;
+    if (banner) banner.classList.toggle('inbound-poll-banner-active', on);
+  }
+
+  function tick() {
+    fetch(url, { credentials: 'same-origin' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var active = d.active === true;
+        var lb = typeof d.lookback_hours === 'number' ? d.lookback_hours : 48;
+        var hint = 'IMAP fetch searches roughly the last ' + lb + ' hours (LOOKBACK_HOURS in .env). Older messages are not downloaded again unless still on the server and matched by that window.';
+
+        if (lineEl) lineEl.textContent = d.message || '';
+        if (active) {
+          if (hintEl) hintEl.textContent = '';
+          setLoading(true);
+        } else {
+          setLoading(false);
+          if (d.phase === 'error' && lineEl) {
+            lineEl.textContent = 'Error: ' + (d.error || d.message || 'unknown');
+            if (hintEl) hintEl.textContent = '';
+          } else if (hintEl) {
+            hintEl.textContent = ' ' + hint;
+          }
+        }
+      })
+      .catch(function() {
+        if (lineEl) lineEl.textContent = 'Could not reach server for poll status.';
+        setLoading(false);
+      });
+  }
+
+  tick();
+  setInterval(tick, pollMs);
+})();
+</script>
+{% endblock %}

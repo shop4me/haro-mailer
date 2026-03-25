@@ -1,0 +1,3 @@
+-- Initial schema placeholder.
+-- This project currently uses SQLAlchemy create_all for MVP bootstrap.
+-- Keep migration files here for future Postgres migration compatibility.

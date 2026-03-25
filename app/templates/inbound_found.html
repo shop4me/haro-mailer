@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block body %}
+<h2 class="page-title">Parsed requests from this email</h2>
+<p class="inbound-context">
+  <a href="{{ url_for('main.inbound_emails') }}">&larr; Back to Inbound</a>
+  &nbsp;|&nbsp;
+  <strong>Subject:</strong> {{ inbound.subject[:80] }}{% if inbound.subject|length > 80 %}…{% endif %}
+  &nbsp; <strong>Received:</strong> {{ inbound.received_at|format_datetime or '—' }}
+</p>
+{% set total = rows_relevant|length + rows_other|length %}
+{% if total %}
+<div class="card">
+  <p class="muted">{{ total }} request(s) parsed from this email.</p>
+  <div class="request-list">
+    {% if rows_relevant %}
+    <h3 class="found-section-title">Relevant &amp; replied</h3>
+    {% for req, cls, biz, rep in rows_relevant %}
+    <div class="request-block request-matched found-request" data-expanded="false">
+      <div class="found-query-row">
+        <button type="button" class="found-expand-btn" aria-label="Expand">+</button>
+        <div class="found-query-text">{{ req.request_text }}</div>
+      </div>
+      <div class="found-details" hidden>
+        <div class="request-header">
+          {% if rep and rep.send_status == 'SENT' %}<span class="badge badge-sent">Replied</span>{% elif rep and rep.send_status == 'DRAFT' %}<span class="badge badge-draft">Draft</span>{% endif %}
+          <div class="request-from"><strong>Request from:</strong> {{ req.journalist_name or '—' }}</div>
+          <div class="request-category"><strong>Category:</strong> {{ req.category or '—' }}</div>
+          {% if req.outlet %}<div class="request-outlet"><strong>Outlet:</strong> {{ req.outlet }}</div>{% endif %}
+          {% if req.deadline %}<div class="request-deadline"><strong>Deadline:</strong> {{ req.deadline }}</div>{% endif %}
+        </div>
+        {% if cls and cls.matched and biz %}
+        <div class="request-business">
+          <strong>Matched business:</strong> {{ biz.name }}
+          {% if cls.reasoning_short %}<span class="reasoning">— {{ cls.reasoning_short }}</span>{% endif %}
+        </div>
+        {% endif %}
+        <p><a href="{{ url_for('main.haro_request_detail', request_id=req.id) }}" class="btn btn-small">View request &amp; reply</a></p>
+      </div>
+    </div>
+    {% endfor %}
+    {% endif %}
+    {% if rows_other %}
+    <h3 class="found-section-title">Not relevant</h3>
+    {% for req, cls, biz, rep in rows_other %}
+    <div class="request-block request-not-matched found-request" data-expanded="false">
+      <div class="found-query-row">
+        <button type="button" class="found-expand-btn" aria-label="Expand">+</button>
+        <div class="found-query-text">{{ req.request_text }}</div>
+      </div>
+      <div class="found-details" hidden>
+        <div class="request-header">
+          <div class="request-from"><strong>Request from:</strong> {{ req.journalist_name or '—' }}</div>
+          <div class="request-category"><strong>Category:</strong> {{ req.category or '—' }}</div>
+          {% if req.outlet %}<div class="request-outlet"><strong>Outlet:</strong> {{ req.outlet }}</div>{% endif %}
+          {% if req.deadline %}<div class="request-deadline"><strong>Deadline:</strong> {{ req.deadline }}</div>{% endif %}
+        </div>
+        <div class="request-not-relevant">
+          <strong>Not relevant to your businesses.</strong>
+          {% if cls and cls.reasoning_short %}
+          <span class="reasoning">— {{ cls.reasoning_short }}</span>
+          {% else %}
+          <span class="reasoning">— No classification reasoning stored.</span>
+          {% endif %}
+        </div>
+        <p><a href="{{ url_for('main.haro_request_detail', request_id=req.id) }}" class="btn btn-small">View request</a></p>
+      </div>
+    </div>
+    {% endfor %}
+    {% endif %}
+  </div>
+</div>
+{% else %}
+<p class="empty-state">No requests parsed from this email yet.</p>
+{% endif %}
+<script>
+(function() {
+  // Ensure only query is visible on load: hide all details (hidden attribute is set in HTML).
+  function hideAllDetails() {
+    document.querySelectorAll('.found-details').forEach(function(el) { el.hidden = true; });
+    document.querySelectorAll('.found-expand-btn').forEach(function(btn) {
+      btn.textContent = '+';
+      btn.setAttribute('aria-label', 'Expand');
+    });
+  }
+  hideAllDetails();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', hideAllDetails);
+  }
+  // Event delegation: one listener on document so expand works even if script runs early/late.
+  document.addEventListener('click', function(e) {
+    var btn = e.target && e.target.closest && e.target.closest('.found-expand-btn');
+    if (!btn) return;
+    var block = btn.closest('.found-request');
+    var details = block && block.querySelector('.found-details');
+    if (!details) return;
+    e.preventDefault();
+    var show = details.hidden;
+    details.hidden = !show;
+    btn.textContent = show ? '\u2212' : '+';
+    btn.setAttribute('aria-label', show ? 'Collapse' : 'Expand');
+  });
+})();
+</script>
+{% endblock %}

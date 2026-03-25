@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block body %}
+<h2 class="page-title">Request #{{ req.id }}</h2>
+<p style="margin:-8px 0 16px; color:var(--text-muted); font-size:0.9rem;">Request details and your reply (draft or sent) are saved below.</p>
+<div class="card detail-section">
+  <h3 class="card-title">Request details (saved)</h3>
+  <dl class="dl-inline">
+    <dt>Category</dt>
+    <dd>{{ req.category or '—' }}</dd>
+    <dt>Outlet</dt>
+    <dd>{{ req.outlet or '—' }}</dd>
+    <dt>Journalist</dt>
+    <dd>{{ req.journalist_name or '—' }}</dd>
+    <dt>Reply-To</dt>
+    <dd>{{ req.reply_to_email or '—' }}</dd>
+    <dt>Deadline</dt>
+    <dd>{{ req.deadline or '—' }}</dd>
+    <dt style="font-weight:600; color:var(--text-muted); font-size:0.85rem; margin-top:12px;">Request</dt>
+    <dd style="margin-top:4px;"><div class="pre-block">{{ req.request_text }}</div></dd>
+  </dl>
+</div>
+{% if cls %}
+<div class="card detail-section">
+  <h3 class="card-title">Classification</h3>
+  <dl class="dl-inline">
+    <dt>Matched</dt>
+    <dd>{{ cls.matched }}</dd>
+    <dt>Business ID</dt>
+    <dd>{{ cls.matched_business_id or '—' }}</dd>
+    <dt>Confidence</dt>
+    <dd>{{ '%.2f'|format(cls.confidence) }}</dd>
+    <dt>Reasoning</dt>
+    <dd>{{ cls.reasoning_short }}</dd>
+  </dl>
+</div>
+{% endif %}
+{% if rep %}
+<div class="card detail-section">
+  <h3 class="card-title">Your message (saved — draft or sent) <span class="badge badge-{{ rep.send_status|lower }}">{{ rep.send_status }}</span></h3>
+  <form method="post">
+    <div class="form-group full-width">
+      <label for="reply_subject">Subject</label>
+      <input id="reply_subject" type="text" name="reply_subject" value="{{ rep.reply_subject }}" />
+    </div>
+    <div class="form-group full-width">
+      <label for="reply_body">Body (plain text — line breaks are kept)</label>
+      <textarea id="reply_body" name="reply_body" rows="14" class="reply-body-textarea">{{ rep.reply_body }}</textarea>
+    </div>
+    <div class="form-actions">
+      <button name="action" value="send" type="submit" class="btn btn-success">Save &amp; Send</button>
+      <button name="action" value="skip" type="submit" class="btn btn-secondary">Skip</button>
+    </div>
+  </form>
+</div>
+{% endif %}
+<p><a href="{{ url_for('main.haro_requests') }}" class="btn btn-secondary">← Back to requests</a></p>
+{% endblock %}

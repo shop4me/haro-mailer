@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block body %}
+<h2 class="page-title">Dashboard</h2>
+{% if haro_mailbox %}
+<p class="haro-mailbox-info">Fetching &amp; parsing HARO from: <strong>{{ haro_mailbox.label }}</strong> ({{ haro_mailbox.imap_user }})</p>
+{% else %}
+<p class="haro-mailbox-info haro-mailbox-none">No HARO mailbox configured. Add one under <a href="{{ url_for('main.mailboxes') }}">Mailboxes</a> and enable &ldquo;Use for HARO fetch&rdquo;.</p>
+{% endif %}
+<form id="reprocess-form" method="post" action="{{ url_for('main.reprocess') }}" class="reprocess-form">
+  <button type="submit" class="btn btn-secondary">Reprocess requests</button>
+  <span class="muted">Re-classify all parsed requests against your current businesses and create drafts where they match.</span>
+</form>
+<script>
+document.getElementById('reprocess-form').addEventListener('submit', function(e) {
+  e.preventDefault();
+  fetch('{{ url_for("main.reprocess") }}', { method: 'POST', credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.started) { /* toast will appear via polling in base */ }
+      if (d.already_running) { alert('Reprocess is already running.'); }
+    });
+});
+</script>
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="value">{{ inbound_count }}</div>
+    <div class="label">Inbound Emails</div>
+  </div>
+  <div class="stat-card">
+    <div class="value">{{ request_count }}</div>
+    <div class="label">Messages Parsed</div>
+  </div>
+  <div class="stat-card">
+    <div class="value">{{ matched_count }}</div>
+    <div class="label">Relevant (matched to your businesses)</div>
+  </div>
+  <div class="stat-card">
+    <div class="value">{{ sent_count }}</div>
+    <div class="label">Replied To</div>
+  </div>
+  <div class="stat-card">
+    <div class="value">{{ draft_count }}</div>
+    <div class="label">Drafts Pending</div>
+  </div>
+</div>
+{% endblock %}

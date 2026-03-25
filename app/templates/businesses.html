@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% block body %}
+<h2 class="page-title">Businesses</h2>
+<div class="card">
+  <h3 class="card-title">{{ 'Edit business' if business_edit else 'Add or update business' }}</h3>
+  <p class="muted" style="margin:-8px 0 16px; font-size:0.9rem;">Outgoing HARO replies use <strong>only</strong> the mailbox you select here (SMTP is configured on the <a href="{{ url_for('main.mailboxes') }}">Mailboxes</a> page).</p>
+  {% if not mailboxes %}
+  <p class="flash error" style="margin-bottom:16px;">Add at least one mailbox under Mailboxes before you can save a business.</p>
+  {% endif %}
+  <form method="post">
+    <div class="form-grid">
+      <div class="form-group">
+        <label for="id">ID (for update)</label>
+        <input id="id" name="id" type="number" placeholder="Leave empty for new" value="{{ business_edit.id if business_edit else '' }}" {{ 'readonly' if business_edit else '' }} />
+      </div>
+      <div class="form-group">
+        <label for="name">Name *</label>
+        <input id="name" name="name" type="text" required placeholder="Business name" value="{{ business_edit.name if business_edit else '' }}" />
+      </div>
+      <div class="form-group full-width">
+        <label for="mailbox_id">Mailbox for sending *</label>
+        {% if mailboxes %}
+        <select id="mailbox_id" name="mailbox_id" required aria-describedby="mailbox_id_help">
+          <option value="" {% if not business_edit or not business_edit.mailbox_id %}selected{% endif %}>Select a mailbox…</option>
+          {% for mb in mailboxes %}
+          <option value="{{ mb.id }}" {{ 'selected' if business_edit and business_edit.mailbox_id == mb.id else '' }}>{{ mb.label }} — {{ mb.imap_user or 'no email' }}{% if mb.smtp_host %} (SMTP set){% else %} (add SMTP in Mailboxes){% endif %}</option>
+          {% endfor %}
+        </select>
+        {% else %}
+        <p class="muted">No mailboxes yet.</p>
+        {% endif %}
+        <span id="mailbox_id_help" class="muted" style="display:block; margin-top:6px; font-size:0.85rem;">The <em>From</em> address on replies is this mailbox&rsquo;s email. SMTP is configured only on the Mailboxes page.</span>
+      </div>
+      <div class="form-group">
+        <label for="contact_name">Contact name</label>
+        <input id="contact_name" name="contact_name" type="text" placeholder="Contact name" value="{{ business_edit.contact_name if business_edit else '' }}" />
+      </div>
+      <div class="form-group full-width">
+        <label for="nature_of_business">Nature of business</label>
+        <textarea id="nature_of_business" name="nature_of_business" rows="2" placeholder="Short description">{{ business_edit.nature_of_business if business_edit else '' }}</textarea>
+      </div>
+      <div class="form-group full-width">
+        <label for="keywords">Keywords (comma-separated)</label>
+        <input id="keywords" name="keywords" type="text" placeholder="e.g. sofa, interior design, chesterfield" value="{{ business_edit.keywords if business_edit else '' }}" />
+      </div>
+      <div class="form-group">
+        <label for="brand_voice">Brand voice</label>
+        <input id="brand_voice" name="brand_voice" type="text" placeholder="e.g. casual, concise" value="{{ business_edit.brand_voice if business_edit else '' }}" />
+      </div>
+      <div class="form-group">
+        <label for="website_url">Website URL</label>
+        <input id="website_url" name="website_url" type="text" placeholder="https://..." value="{{ business_edit.website_url if business_edit else '' }}" />
+      </div>
+      <div class="form-group full-width">
+        <label for="signature">Signature</label>
+        <textarea id="signature" name="signature" rows="3" placeholder="Email signature">{{ business_edit.signature if business_edit else '' }}</textarea>
+      </div>
+      <div class="form-group">
+        <div class="checkbox-row">
+          <input id="enabled" name="enabled" type="checkbox" {{ 'checked' if not business_edit or business_edit.enabled else '' }} />
+          <label for="enabled">Enabled</label>
+        </div>
+      </div>
+      <div class="form-group">
+        <div class="checkbox-row">
+          <input id="auto_send_enabled" name="auto_send_enabled" type="checkbox" {{ 'checked' if business_edit and business_edit.auto_send_enabled else '' }} />
+          <label for="auto_send_enabled">Autoreply — send automatically after a match is drafted (requires global AUTO_SEND in <a href="{{ url_for('main.app_settings') }}">Settings</a>)</label>
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="auto_send_threshold">Autoreply confidence threshold (0–1)</label>
+        <input id="auto_send_threshold" name="auto_send_threshold" type="number" min="0" max="1" step="0.01" value="{{ business_edit.auto_send_threshold if business_edit else 0.8 }}" />
+      </div>
+
+      <div class="matching-template-regency full-width-block">
+        <h3 class="card-title" style="margin-top:8px;">Matching &amp; strict AI relevance</h3>
+        <p class="muted" style="font-size:0.9rem;">Shown for <strong>every</strong> business (add or edit). Adjust the strict prompt and threshold per brand. For a <strong>new</strong> business, the system prompt starts with the default template below—change it before saving if needed.</p>
+
+        <h4 class="subsection-title">Main classifier (already on this form)</h4>
+        <p class="muted" style="font-size:0.88rem;">The first OpenAI step builds a catalog from each business&rsquo;s <strong>Name</strong>, <strong>Nature of business</strong>, and <strong>Keywords</strong> (plus home/garden heuristic scores). That is how the system picks <em>which</em> business might fit the query—before the strict relevance step below.</p>
+
+        <h4 class="subsection-title">Shared pipeline (global)</h4>
+        <p class="muted" style="font-size:0.88rem;">These apply to every request, not only Regency. Edit values under <a href="{{ url_for('main.app_settings') }}">Settings</a>.</p>
+        <ul class="pipeline-bullets">
+          <li><strong>GLOBAL_AUTO_SEND</strong>: {{ pipeline_settings.get('GLOBAL_AUTO_SEND', '—') }} — must be <code>true</code> for any automatic SMTP send.</li>
+          <li><strong>GLOBAL_DRY_RUN</strong>: {{ pipeline_settings.get('GLOBAL_DRY_RUN', '—') }} — when <code>true</code>, no mail is sent.</li>
+          <li><strong>GLOBAL_REVIEW_MODE</strong>: {{ pipeline_settings.get('GLOBAL_REVIEW_MODE', '—') }} — when <code>true</code>, replies stay drafts for manual review.</li>
+          <li><strong>MAX_SENDS_PER_RUN</strong>: {{ pipeline_settings.get('MAX_SENDS_PER_RUN', '—') }} — cap on sends per poll cycle.</li>
+          <li><strong>HOME_GARDEN_BUSINESS_ID</strong> (env): {% if home_garden_business_id is not none %}{{ home_garden_business_id }}{% else %}(unset){% endif %} — optional policy route for strong home/garden heuristic matches.</li>
+        </ul>
+        <p class="muted" style="font-size:0.88rem;">Additional rules in code (all businesses): queries that require <strong>in-person</strong> participation are never matched; queries requiring <strong>product samples/gifts</strong> are blocked unless the outlet looks like a <strong>TV station</strong>.</p>
+
+        <h4 class="subsection-title">Strict AI relevance (this business)</h4>
+        <p class="muted" style="font-size:0.88rem;">After the main classifier picks this business, a second OpenAI call can run with the system prompt below (when enabled). The model returns JSON only; drafting requires <strong>RELEVANT</strong> and confidence ≥ the minimum. Enable this for brands that need an editorial gate (e.g. Regency Shop).</p>
+        <div class="form-group">
+          <div class="checkbox-row">
+            <input id="strict_ai_relevance_enabled" name="strict_ai_relevance_enabled" type="checkbox" {% if business_edit and business_edit.strict_ai_relevance_enabled %}checked{% endif %} />
+            <label for="strict_ai_relevance_enabled">Strict AI relevance enabled (second gate before draft)</label>
+          </div>
+        </div>
+        <div class="form-group full-width">
+          <label for="strict_ai_relevance_system_prompt">System prompt (strict relevance classifier)</label>
+          <textarea id="strict_ai_relevance_system_prompt" name="strict_ai_relevance_system_prompt" rows="18" class="code-like-textarea" placeholder="System instructions sent to the model">{{ strict_prompt_field_value }}</textarea>
+        </div>
+        <div class="form-group">
+          <label for="strict_ai_relevance_min_confidence">Minimum confidence for RELEVANT (0–1)</label>
+          <input id="strict_ai_relevance_min_confidence" name="strict_ai_relevance_min_confidence" type="number" min="0" max="1" step="0.01" value="{% if business_edit %}{{ business_edit.strict_ai_relevance_min_confidence }}{% else %}0.82{% endif %}" />
+        </div>
+
+        <h4 class="subsection-title">Structured response (OpenAI JSON schema)</h4>
+        <p class="muted" style="font-size:0.88rem;">The API enforces this shape (<code>gpt-4o-mini</code> + json_schema). Edit the <strong>system prompt</strong> above to change behavior; the schema stays in code unless we extend it.</p>
+        <pre class="schema-pre" tabindex="0">{{ strict_schema_json|e }}</pre>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary" {% if not mailboxes %}disabled{% endif %}>Save business</button>
+      {% if business_edit %}
+      <a href="{{ url_for('main.businesses') }}" class="btn">Cancel</a>
+      {% endif %}
+    </div>
+  </form>
+</div>
+<div class="card">
+  <h3 class="card-title">Existing businesses</h3>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Name</th>
+          <th>Send from (mailbox)</th>
+          <th>Send via mailbox</th>
+          <th>Autoreply</th>
+          <th>Threshold</th>
+          <th>Enabled</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="businesses-tbody">
+        {% for row in rows %}
+        <tr class="business-row">
+          <td>{{ row.id }}</td>
+          <td>{{ row.name }}</td>
+          <td>{{ row.mailbox.imap_user if row.mailbox else (row.sending_email or '—') }}</td>
+          <td>{% if row.mailbox %}{{ row.mailbox.label }}{% else %}—{% endif %}</td>
+          <td>
+            <form method="post" action="{{ url_for('main.business_autoreply', business_id=row.id) }}" class="inline-form business-autoreply-form">
+              <input type="hidden" name="autoreply" value="{{ '1' if row.auto_send_enabled else '0' }}" id="autoreply-hid-{{ row.id }}" />
+              <label class="autoreply-toggle" title="When on, matching requests can be sent automatically after parsing (if Settings allow)">
+                <input type="checkbox" {% if row.auto_send_enabled %}checked{% endif %} onchange="document.getElementById('autoreply-hid-{{ row.id }}').value = this.checked ? '1' : '0'; this.form.submit();" aria-label="Autoreply for {{ row.name|e }}" />
+                <span class="autoreply-state">{{ 'On' if row.auto_send_enabled else 'Off' }}</span>
+              </label>
+            </form>
+          </td>
+          <td>{{ row.auto_send_threshold }}</td>
+          <td>{{ 'Yes' if row.enabled else 'No' }}</td>
+          <td>
+            <a href="{{ url_for('main.businesses', edit=row.id) }}" class="btn btn-small">Edit</a>
+            <form method="post" action="{{ url_for('main.business_delete', business_id=row.id) }}" class="inline-form business-delete-form">
+              <button type="submit" class="btn btn-small btn-danger">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr class="business-row business-empty-row"><td colspan="8" class="empty-state">No businesses yet. Add one above.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+<script>
+(function() {
+  var emptyRowHtml = '<tr class="business-row business-empty-row"><td colspan="8" class="empty-state">No businesses yet. Add one above.</td></tr>';
+  document.getElementById('businesses-tbody').addEventListener('submit', function(e) {
+    var form = e.target;
+    if (!form.classList.contains('business-delete-form')) return;
+    e.preventDefault();
+    if (!confirm('Delete this business?')) return;
+    var row = form.closest('tr');
+    fetch(form.action, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Accept': 'text/html, application/json', 'X-Requested-With': 'XMLHttpRequest' }
+    })
+      .then(function(r) { return (r.ok || r.status === 302) ? Promise.resolve() : Promise.reject(new Error(r.status)); })
+      .then(function() {
+        row.remove();
+        var tbody = document.getElementById('businesses-tbody');
+        if (tbody.querySelectorAll('tr.business-row:not(.business-empty-row)').length === 0) {
+          tbody.insertAdjacentHTML('beforeend', emptyRowHtml);
+        }
+      })
+      .catch(function() { alert('Delete failed.'); });
+  });
+})();
+</script>
+{% endblock %}

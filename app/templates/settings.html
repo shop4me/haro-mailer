@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block body %}
+<h2 class="page-title">Settings</h2>
+<div class="card">
+  <h3 class="card-title">Pipeline mode</h3>
+  <form method="post">
+    <div class="form-group full-width">
+      <div class="checkbox-row">
+        <input id="GLOBAL_DRY_RUN" type="checkbox" name="GLOBAL_DRY_RUN" {% if rows.get('GLOBAL_DRY_RUN') == 'true' %}checked{% endif %} />
+        <label for="GLOBAL_DRY_RUN">DRY_RUN — draft only, never send</label>
+      </div>
+    </div>
+    <div class="form-group full-width">
+      <div class="checkbox-row">
+        <input id="GLOBAL_REVIEW_MODE" type="checkbox" name="GLOBAL_REVIEW_MODE" {% if rows.get('GLOBAL_REVIEW_MODE') == 'true' %}checked{% endif %} />
+        <label for="GLOBAL_REVIEW_MODE">REVIEW_MODE — queue drafts for manual approval</label>
+      </div>
+    </div>
+    <div class="form-group full-width">
+      <div class="checkbox-row">
+        <input id="GLOBAL_AUTO_SEND" type="checkbox" name="GLOBAL_AUTO_SEND" {% if rows.get('GLOBAL_AUTO_SEND') == 'true' %}checked{% endif %} />
+        <label for="GLOBAL_AUTO_SEND">AUTO_SEND — allow automatic sending when each business has Auto-send enabled and match confidence ≥ that business&rsquo;s threshold. Requires DRY_RUN off and REVIEW_MODE off. Regency Shop can auto-send including home &amp; garden matches when this is on.</label>
+      </div>
+    </div>
+    <div class="form-group">
+      <label for="MAX_SENDS_PER_RUN">Max sends per run</label>
+      <input id="MAX_SENDS_PER_RUN" type="number" name="MAX_SENDS_PER_RUN" value="{{ rows.get('MAX_SENDS_PER_RUN', '20') }}" min="1" max="100" />
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Save settings</button>
+    </div>
+  </form>
+</div>
+{% endblock %}
