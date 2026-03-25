@@ -1,0 +1,16 @@
+[Unit]
+Description=HARO mailer (gunicorn)
+After=network.target
+
+[Service]
+Type=simple
+User=haro
+Group=haro
+WorkingDirectory=/home/haro/haro-mailer
+# app.config load_dotenv() reads .env from WorkingDirectory
+ExecStart=/home/haro/haro-mailer/.venv/bin/gunicorn -c /home/haro/haro-mailer/gunicorn.conf.py app:create_app()
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

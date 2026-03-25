@@ -128,6 +128,21 @@ Script: `scripts/deploy.sh` — pushes `main` to GitHub, then SSHs to **only** t
 
 The remote command **refuses** to run if `.haro-mailer-root` is missing in the target directory (prevents accidental deploy to the wrong folder).
 
+### Production on the server (gunicorn + systemd, isolated)
+
+- Gunicorn binds **`127.0.0.1:8001`** only (see `gunicorn.conf.py`) so it does not compete with other apps on `:80` / `:443` / `:5000`.
+- **One-time** on the server, after `git clone` and `.env` exist under `/home/haro/haro-mailer`:
+
+```bash
+cd /home/haro/haro-mailer
+git pull --ff-only origin main
+chmod +x scripts/server_install.sh
+./scripts/server_install.sh --with-systemd
+```
+
+- **Nginx:** add a `location /` block only inside the `server { }` for this app’s hostname; see `deploy/nginx-location-snippet.conf.example`. Reload nginx — other vhosts stay unchanged if you only edit that one server block.
+- **Stop** any manual `python run.py` on port 5000 before starting the service, or you will have two processes.
+
 ## Tests
 - Run:
   - `pytest -q`
