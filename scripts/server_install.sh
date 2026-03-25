@@ -40,7 +40,7 @@ if [[ "$WITH_SYSTEMD" -eq 1 ]]; then
   sudo systemctl enable haro-mailer
   sudo systemctl restart haro-mailer
   sudo systemctl status haro-mailer --no-pager || true
-  echo "==> Listening on 127.0.0.1:8001 (see gunicorn.conf.py). Point nginx at it."
+  echo "==> Listening on 0.0.0.0:18080 (see gunicorn.conf.py). Point nginx at it or open that port in the firewall."
 else
   echo "==> Done (no systemd). Run manually:"
   echo "    cd $APP && source .venv/bin/activate && gunicorn -c gunicorn.conf.py app:create_app()"

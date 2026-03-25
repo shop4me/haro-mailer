@@ -130,7 +130,7 @@ The remote command **refuses** to run if `.haro-mailer-root` is missing in the t
 
 ### Production on the server (gunicorn + systemd, isolated)
 
-- Gunicorn binds **`127.0.0.1:8001`** only (see `gunicorn.conf.py`) so it does not compete with other apps on `:80` / `:443` / `:5000`.
+- Gunicorn binds **`0.0.0.0:18080`** by default (see `gunicorn.conf.py`; override with `GUNICORN_BIND`) so it does not use **`:8001`**, which may already be taken by another app on a shared host.
 - **One-time** on the server, after `git clone` and `.env` exist under `/home/haro/haro-mailer`:
 
 ```bash
@@ -140,7 +140,8 @@ chmod +x scripts/server_install.sh
 ./scripts/server_install.sh --with-systemd
 ```
 
-- **Nginx:** add a `location /` block only inside the `server { }` for this app’s hostname; see `deploy/nginx-location-snippet.conf.example`. Reload nginx — other vhosts stay unchanged if you only edit that one server block.
+- **Public URL (default):** `http://YOUR_SERVER_IP:18080/` (or your hostname on that port).
+- **Nginx (optional):** add a `location /` block only inside the `server { }` for this app’s hostname; see `deploy/nginx-location-snippet.conf.example`. Reload nginx — other vhosts stay unchanged if you only edit that one server block.
 - **Stop** any manual `python run.py` on port 5000 before starting the service, or you will have two processes.
 
 ## Tests
