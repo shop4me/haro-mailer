@@ -113,6 +113,21 @@ RUN_TIMES=08:00,13:00,18:00
   - confirm `OPENAI_API_KEY` is valid.
   - fallback parser runs automatically when OpenAI parsing fails.
 
+## Deploy (git + server)
+
+Script: `scripts/deploy.sh` — pushes `main` to GitHub, then SSHs to **only** the configured app directory and runs `git pull --ff-only`. Other sites on the same server are not modified.
+
+1. **One-time on the server** (as user `haro`, path must match `DEPLOY_PATH` default or your override):
+   - `mkdir -p /home/haro/haro-mailer && cd /home/haro/haro-mailer`
+   - `git clone git@github.com:shop4me/haro-mailer.git .` (or HTTPS), so `.haro-mailer-root` from the repo is present.
+   - Copy `.env` (not in git), create venv, `pip install -r requirements.txt`, configure process manager only for this app if needed.
+
+2. **Local**: copy `.deploy.env.example` → `.deploy.env` (gitignored). Set `DEPLOY_PATH` if the clone lives elsewhere. Prefer **SSH key** auth: `ssh-copy-id haro@142.93.187.80`. Optional: `sshpass` + `DEPLOY_SSH_PASSWORD` (avoid committing passwords).
+
+3. Run: `chmod +x scripts/deploy.sh && ./scripts/deploy.sh`
+
+The remote command **refuses** to run if `.haro-mailer-root` is missing in the target directory (prevents accidental deploy to the wrong folder).
+
 ## Tests
 - Run:
   - `pytest -q`

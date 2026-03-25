@@ -1,0 +1,2 @@
+# Marker: only this directory is touched by scripts/deploy.sh on the server.
+# Do not remove. Clone the repo so this file lives at the deploy path root.
