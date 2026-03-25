@@ -2,7 +2,8 @@
   "private": true,
   "description": "Local smoke tests only — not used on the Python server",
   "scripts": {
-    "smoke": "node scripts/smoke_puppeteer.mjs"
+    "smoke": "node scripts/smoke_puppeteer.mjs",
+    "smoke:headed": "HARO_HEADED=1 node scripts/smoke_puppeteer.mjs"
   },
   "devDependencies": {
     "puppeteer": "^24.0.0"

@@ -151,10 +151,11 @@ Optional, on your **desktop** only — `node_modules/` is gitignored and is **no
 
 ```bash
 npm install
-npm run smoke
+npm run smoke              # headless (no window)
+npm run smoke:headed       # opens real Chromium so you can watch (~20s then closes)
 ```
 
-Uses `HARO_SMOKE_URL` if set (default: `http://142.93.187.80:18080/login`).
+Uses `HARO_SMOKE_URL` if set (default: `http://142.93.187.80:18080/login`). Headed mode needs a graphical session (`DISPLAY`, e.g. run from your desktop terminal, not a headless SSH session).
 
 ## Tests
 - Run:
