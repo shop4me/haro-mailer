@@ -141,8 +141,20 @@ chmod +x scripts/server_install.sh
 ```
 
 - **Public URL (default):** `http://YOUR_SERVER_IP:18080/` (or your hostname on that port).
+- **UFW:** If the host uses `ufw` with default deny, allow this app’s port once: `sudo ufw allow 18080/tcp comment 'HARO mailer'` then `sudo ufw reload`.
 - **Nginx (optional):** add a `location /` block only inside the `server { }` for this app’s hostname; see `deploy/nginx-location-snippet.conf.example`. Reload nginx — other vhosts stay unchanged if you only edit that one server block.
 - **Stop** any manual `python run.py` on port 5000 before starting the service, or you will have two processes.
+
+## Local browser smoke test (Puppeteer)
+
+Optional, on your **desktop** only — `node_modules/` is gitignored and is **not** part of the Python server deploy.
+
+```bash
+npm install
+npm run smoke
+```
+
+Uses `HARO_SMOKE_URL` if set (default: `http://142.93.187.80:18080/login`).
 
 ## Tests
 - Run:

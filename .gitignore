@@ -5,3 +5,9 @@ __pycache__/
 .venv/
 *.pyc
 .pytest_cache/
+
+# Local Node / Puppeteer smoke tests (never deployed with Python app)
+node_modules/
+package-lock.json
+.npm/
+.puppeteer_cache/
