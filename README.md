@@ -130,6 +130,10 @@ Script: `scripts/deploy.sh` — pushes `main` to GitHub, then SSHs to **only** t
 
 3. Run: `chmod +x scripts/deploy.sh && ./scripts/deploy.sh`
 
+4. **Reload the app** so new code and dependencies load (after `git pull` on the server):
+   - `chmod +x scripts/server_restart.sh && ./scripts/server_restart.sh` — runs `pip install -r requirements.txt` on the server and sends **HUP** to the gunicorn master (no `sudo`).
+   - If you use systemd and have passwordless `sudo`: `ssh haro@HOST 'sudo systemctl restart haro-mailer'`.
+
 The remote command **refuses** to run if `.haro-mailer-root` is missing in the target directory (prevents accidental deploy to the wrong folder).
 
 ### Production on the server (gunicorn + systemd, isolated)
