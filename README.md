@@ -153,6 +153,22 @@ chmod +x scripts/server_install.sh
 - **Nginx (optional):** add a `location /` block only inside the `server { }` for this app’s hostname; see `deploy/nginx-location-snippet.conf.example`. Reload nginx — other vhosts stay unchanged if you only edit that one server block.
 - **Stop** any manual `python run.py` on port 5000 before starting the service, or you will have two processes.
 
+#### HTTPS warning: certificate valid for a different domain (e.g. `SSL_ERROR_BAD_CERT_DOMAIN`)
+
+If Firefox (or another browser) says the certificate is only valid for **halsahome.com** (or another name) when you open **https://floatfire.com**, that is **not** a bug in this Flask app. It means the **TLS layer in front of the app** (almost always nginx on the same server) is still presenting a certificate that does not include **floatfire.com**—often because traffic hits the **default vhost** or a vhost that still uses the old site’s cert files.
+
+**What to fix on the server (outline):**
+
+1. Confirm **DNS** for `floatfire.com` and `www.floatfire.com` points to the host you expect (same IP as before is fine; the cert must match the **name** in the address bar).
+2. Obtain a certificate that covers **floatfire.com** (and `www` if you use it), e.g. with **Let’s Encrypt** / Certbot:  
+   `sudo certbot certonly --nginx -d floatfire.com -d www.floatfire.com`  
+   (adjust flags if you use Apache or DNS validation.)
+3. Ensure nginx has a **`server { ... }`** block with `listen 443 ssl;`, **`server_name floatfire.com www.floatfire.com;`**, and `ssl_certificate` / `ssl_certificate_key` pointing at the **new** cert and key—not the files used for halsahome.com unless you use a single SAN cert that lists both brands (usually you want a dedicated cert per site).
+4. Put the proxy `location /` from `deploy/nginx-location-snippet.conf.example` **inside that** `server` block (proxy to `127.0.0.1:18080`).
+5. Run `sudo nginx -t` and `sudo systemctl reload nginx`.
+
+Until that is done, you can still reach the app over **HTTP** on port **18080** by IP (or a hostname that you are not claiming over HTTPS yet), e.g. `http://YOUR_SERVER_IP:18080/login`, for admin use only—not a substitute for fixing TLS for production.
+
 ## Local browser smoke test (Puppeteer)
 
 Optional, on your **desktop** only — `node_modules/` is gitignored and is **not** part of the Python server deploy.
