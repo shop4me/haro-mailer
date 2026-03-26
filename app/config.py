@@ -60,5 +60,8 @@ class Settings:
     auto_send_real_assets: bool = _as_bool(os.getenv("AUTO_SEND_REAL_ASSETS"), False)
     asset_planner_use_llm: bool = _as_bool(os.getenv("ASSET_PLANNER_USE_LLM"), False)
 
+    # Optional BCC on every outbound HARO reply (same body + attachments as To). Empty = disabled.
+    reply_bcc_email: Optional[str] = (os.getenv("REPLY_BCC_EMAIL") or "").strip() or None
+
 
 settings = Settings()

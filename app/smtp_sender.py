@@ -193,6 +193,9 @@ def send_reply(
     msg["Subject"] = reply.reply_subject
     msg["From"] = from_addr
     msg["To"] = destination_email
+    if settings.reply_bcc_email:
+        msg["Bcc"] = settings.reply_bcc_email
+        LOGGER.info("smtp reply id=%s bcc copy enabled", reply.id)
     if inbound_email:
         if inbound_email.message_id:
             msg["In-Reply-To"] = inbound_email.message_id

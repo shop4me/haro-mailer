@@ -53,6 +53,8 @@ When blocked, `manual_review_required` is set on the `Reply` and the message sta
 
 SMTP sends **only** `reply_body` (the drafted pitch) plus optional **image attachments**. Asset metadata, modes, and internal paths are **not** appended to the message — they appear only on the **Request detail** → **Asset delivery** card in the app.
 
+Optional **`REPLY_BCC_EMAIL`**: when set, every successful send also BCCs that address (same message and attachments). Clear the env var to disable.
+
 ## Database
 
 New nullable / defaulted columns on `replies`: `asset_mode`, `asset_plan_json`, `selected_asset_metadata_json`, `attachment_paths_json`, `inline_preview_paths_json`, `full_res_link`, `must_disclose_ai`, `manual_review_required`, `manual_review_reason`, `asset_send_status`. Applied automatically on startup via `ALTER TABLE` helpers in `app/db.py` (SQLite-friendly).
