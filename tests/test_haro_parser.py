@@ -7,6 +7,19 @@ def test_hash_is_idempotent_for_whitespace_and_case():
     assert a == b
 
 
+def test_deadline_differences_do_not_change_query_id():
+    """HARO resends the same query with reworded deadlines — must not split into duplicate rows."""
+    a = build_haro_query_id("Need Experts on SOFAS", "Home Weekly", "Tomorrow 5pm ET")
+    b = build_haro_query_id("Need Experts on SOFAS", "Home Weekly", "March 26 2026 5pm ET")
+    assert a == b
+
+
+def test_reply_to_distinguishes_same_blurb():
+    a = build_haro_query_id("Same blurb", "Mag", "d1", "a@x.com")
+    b = build_haro_query_id("Same blurb", "Mag", "d2", "b@y.com")
+    assert a != b
+
+
 def test_fallback_parser_extracts_multiple_requests():
     body = """
 Category: Home

@@ -28,6 +28,26 @@ LOGGER = logging.getLogger(__name__)
 REGENCY_DRAFT_SAFETY_FAIL_REASON = "Regency niche draft safety net rejected generated text."
 
 
+def _semantic_duplicate_sent_request_id(
+    session, req: HaroRequest, business_id: int
+) -> int | None:
+    """If another request is the same semantic query (new dedup hash) and already SENT for this business, return that row id."""
+    key = build_haro_query_id(
+        req.request_text, req.outlet, req.deadline, req.reply_to_email
+    )
+    others = session.scalars(select(HaroRequest).where(HaroRequest.id != req.id)).all()
+    for o in others:
+        if (
+            build_haro_query_id(o.request_text, o.outlet, o.deadline, o.reply_to_email)
+            != key
+        ):
+            continue
+        rep = session.scalar(select(Reply).where(Reply.haro_request_id == o.id))
+        if rep and rep.send_status == "SENT" and rep.business_id == business_id:
+            return o.id
+    return None
+
+
 def _finalize_reply_after_draft(
     session,
     reply: Reply,
@@ -66,6 +86,16 @@ def _finalize_reply_after_draft(
         and not hg_blocks_auto_send
     )
     if should_send:
+        dup_of = _semantic_duplicate_sent_request_id(session, req, business.id)
+        if dup_of is not None:
+            reply.send_status = "SKIPPED"
+            reply.error_message = "Duplicate query (already sent on request #%s)" % dup_of
+            LOGGER.warning(
+                "Skip duplicate send request_id=%s semantic_dup_of=%s",
+                req.id,
+                dup_of,
+            )
+            return sent_count
         smtp_mb = smtp_mailbox_for_reply(session, business, inbound)
         ok, _msg = send_reply(reply, destination, business, inbound, smtp_mailbox=smtp_mb)
         if ok:
@@ -166,7 +196,9 @@ def process_pending_haro(session) -> int:
                 (inbound.subject or "")[:120],
             )
         for item in extracted:
-            query_id = build_haro_query_id(item.request_text, item.outlet, item.deadline)
+            query_id = build_haro_query_id(
+                item.request_text, item.outlet, item.deadline, item.reply_to_email
+            )
             existing = session.scalar(select(HaroRequest).where(HaroRequest.haro_query_id == query_id))
             if existing:
                 LOGGER.debug(
