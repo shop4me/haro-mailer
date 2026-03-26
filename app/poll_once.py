@@ -9,7 +9,11 @@ from app.config import settings
 from app.db import get_session, init_db
 from app.drafter import draft_reply
 from app.regency_niche_gate import is_regency_business
-from app.haro_parser import build_haro_query_id, parse_haro_email
+from app.haro_parser import (
+    build_haro_query_id,
+    normalize_reply_email_for_dedup,
+    parse_haro_email,
+)
 from app.imap_worker import poll_mailboxes
 from app.models import (
     AppSetting,
@@ -28,19 +32,16 @@ LOGGER = logging.getLogger(__name__)
 REGENCY_DRAFT_SAFETY_FAIL_REASON = "Regency niche draft safety net rejected generated text."
 
 
-def _semantic_duplicate_sent_request_id(
+def _duplicate_sent_same_reply_email(
     session, req: HaroRequest, business_id: int
 ) -> int | None:
-    """If another request is the same semantic query (new dedup hash) and already SENT for this business, return that row id."""
-    key = build_haro_query_id(
-        req.request_text, req.outlet, req.deadline, req.reply_to_email
-    )
+    """If another request has the same reply-to address and already SENT for this business, return that row id."""
+    addr = normalize_reply_email_for_dedup(req.reply_to_email)
+    if not addr:
+        return None
     others = session.scalars(select(HaroRequest).where(HaroRequest.id != req.id)).all()
     for o in others:
-        if (
-            build_haro_query_id(o.request_text, o.outlet, o.deadline, o.reply_to_email)
-            != key
-        ):
+        if normalize_reply_email_for_dedup(o.reply_to_email) != addr:
             continue
         rep = session.scalar(select(Reply).where(Reply.haro_request_id == o.id))
         if rep and rep.send_status == "SENT" and rep.business_id == business_id:
@@ -86,12 +87,12 @@ def _finalize_reply_after_draft(
         and not hg_blocks_auto_send
     )
     if should_send:
-        dup_of = _semantic_duplicate_sent_request_id(session, req, business.id)
+        dup_of = _duplicate_sent_same_reply_email(session, req, business.id)
         if dup_of is not None:
             reply.send_status = "SKIPPED"
-            reply.error_message = "Duplicate query (already sent on request #%s)" % dup_of
+            reply.error_message = "Duplicate reply-to (already sent on request #%s)" % dup_of
             LOGGER.warning(
-                "Skip duplicate send request_id=%s semantic_dup_of=%s",
+                "Skip duplicate send request_id=%s same_reply_to_as=%s",
                 req.id,
                 dup_of,
             )
@@ -195,9 +196,11 @@ def process_pending_haro(session) -> int:
                 inbound.id,
                 (inbound.subject or "")[:120],
             )
-        for item in extracted:
+        for slot_index, item in enumerate(extracted):
             query_id = build_haro_query_id(
-                item.request_text, item.outlet, item.deadline, item.reply_to_email
+                item.reply_to_email,
+                inbound_email_id=inbound.id,
+                slot_index=slot_index,
             )
             existing = session.scalar(select(HaroRequest).where(HaroRequest.haro_query_id == query_id))
             if existing:

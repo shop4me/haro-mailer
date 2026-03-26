@@ -98,7 +98,7 @@ RUN_TIMES=08:00,13:00,18:00
   - match confidence >= business threshold,
   - not dry-run/review mode,
   - max sends per run is not exceeded.
-- Deduplication key (`haro_query_id`) hashes normalized **request text + outlet + reply-to** (deadline is **not** included, so HARO digest repeats with reworded deadlines do not create duplicate rows). A send-time check also skips SMTP if the same semantic query was already **SENT** for that business (covers legacy duplicate rows).
+- Deduplication key (`haro_query_id`) is derived **only** from the journalist **reply-to / HARO request-ID email** (case-insensitive). Same address → one row. Rows with no reply address use a per-inbound/slot key and do not merge. A send-time check skips SMTP if the **same reply-to** already has **SENT** for that business.
 
 ## Troubleshooting IMAP/SMTP
 - IMAP login fails:

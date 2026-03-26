@@ -1,23 +1,31 @@
 from app.haro_parser import build_haro_query_id, parse_haro_email
 
 
-def test_hash_is_idempotent_for_whitespace_and_case():
-    a = build_haro_query_id("Need Experts on SOFAS", "Home Weekly", "Tomorrow 5pm ET")
-    b = build_haro_query_id(" need experts on sofas  ", "home weekly", " tomorrow 5pm et ")
+def test_query_id_is_only_reply_email_case_insensitive():
+    a = build_haro_query_id("Reporter@HelpAReporter.com", inbound_email_id=1, slot_index=0)
+    b = build_haro_query_id("  REPORTER@HELPAREPORTER.COM  ", inbound_email_id=99, slot_index=9)
     assert a == b
 
 
-def test_deadline_differences_do_not_change_query_id():
-    """HARO resends the same query with reworded deadlines — must not split into duplicate rows."""
-    a = build_haro_query_id("Need Experts on SOFAS", "Home Weekly", "Tomorrow 5pm ET")
-    b = build_haro_query_id("Need Experts on SOFAS", "Home Weekly", "March 26 2026 5pm ET")
-    assert a == b
-
-
-def test_reply_to_distinguishes_same_blurb():
-    a = build_haro_query_id("Same blurb", "Mag", "d1", "a@x.com")
-    b = build_haro_query_id("Same blurb", "Mag", "d2", "b@y.com")
+def test_different_reply_emails_different_ids():
+    a = build_haro_query_id("a@x.com", inbound_email_id=1, slot_index=0)
+    b = build_haro_query_id("b@y.com", inbound_email_id=1, slot_index=0)
     assert a != b
+
+
+def test_body_and_slot_ignored_when_reply_email_set():
+    """Outlet/body/deadline must not affect id — only reply address."""
+    a = build_haro_query_id("same@haro.test", inbound_email_id=1, slot_index=0)
+    b = build_haro_query_id("same@haro.test", inbound_email_id=2, slot_index=7)
+    assert a == b
+
+
+def test_no_reply_email_uses_inbound_and_slot():
+    a = build_haro_query_id(None, inbound_email_id=5, slot_index=0)
+    b = build_haro_query_id("", inbound_email_id=5, slot_index=1)
+    assert a != b
+    c = build_haro_query_id(None, inbound_email_id=5, slot_index=0)
+    assert a == c
 
 
 def test_fallback_parser_extracts_multiple_requests():

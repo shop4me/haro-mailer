@@ -29,46 +29,28 @@ def normalize_text(value: str) -> str:
     return cleaned
 
 
-def _normalize_request_for_dedup(request_text: str) -> str:
-    """Normalize query body so minor punctuation / model variance does not split duplicates."""
-    n = normalize_text(request_text)
-    # Drop punctuation that OpenAI extractions often vary on (quotes, dashes, etc.)
-    n = re.sub(r"[^\w\s]", " ", n)
-    return re.sub(r"\s+", " ", n).strip()
+def normalize_reply_email_for_dedup(reply_to_email: str | None) -> str:
+    """Single source of truth for comparing reply / HARO request-ID addresses."""
+    return (reply_to_email or "").strip().lower()
 
 
 def build_haro_query_id(
-    request_text: str,
-    outlet: str | None,
-    deadline: str | None,
-    reply_to_email: str | None = None,
+    reply_to_email: str | None,
+    *,
+    inbound_email_id: int,
+    slot_index: int,
 ) -> str:
-    """Stable id for deduplicating journalist queries across digests.
+    """Stable id: **only** the reply-to / request-ID email. No body, outlet, or deadline.
 
-    **Deadline is intentionally not part of the hash.** HARO often repeats the same
-    request with reworded deadlines (\"Tomorrow 5pm\" vs \"Mar 26 5pm ET\"), which
-    previously produced different IDs and duplicate replies/sends.
-
-    **reply_to_email** (when present) distinguishes two different journalists; if missing,
-    we may fall back to the first email found in *request_text*.
-
-    *deadline* is kept in the signature for callers but is not used in the hash.
+    Same address → same id → one HaroRequest row. Items without a reply address get a
+    per-slot key so the unique constraint can still hold (they do not merge).
     """
-    _ = deadline
-    contact = normalize_text(reply_to_email or "") or (_extract_first_email(request_text) or "")
-    dedup_basis = "||".join(
-        [
-            _normalize_request_for_dedup(request_text),
-            normalize_text(outlet or ""),
-            contact,
-        ]
-    )
-    return hashlib.sha256(dedup_basis.encode("utf-8")).hexdigest()
-
-
-def _extract_first_email(text: str) -> str | None:
-    m = EMAIL_RE.search(text or "")
-    return m.group(0).lower() if m else None
+    email = normalize_reply_email_for_dedup(reply_to_email)
+    if email:
+        return hashlib.sha256(("reply:%s" % email).encode("utf-8")).hexdigest()
+    return hashlib.sha256(
+        ("no_reply_to_email:%s:%s" % (inbound_email_id, slot_index)).encode("utf-8")
+    ).hexdigest()
 
 
 def parse_haro_email(body_text: str) -> list[ExtractedRequest]:
