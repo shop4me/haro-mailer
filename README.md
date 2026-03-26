@@ -169,6 +169,8 @@ If Firefox (or another browser) says the certificate is only valid for **halsaho
 
 Until that is done, you can still reach the app over **HTTP** on port **18080** by IP (or a hostname that you are not claiming over HTTPS yet), e.g. `http://YOUR_SERVER_IP:18080/login`, for admin use only—not a substitute for fixing TLS for production.
 
+**Automated vhost + Certbot (on the server):** see `deploy/nginx-floatfire.com.conf` and `deploy/install_floatfire_ssl.sh` (run the script **with sudo**). Cloudflare DNS/SSL checklist: `deploy/CLOUDFLARE_FLOATFIRE.md`.
+
 ## Local browser smoke test (Puppeteer)
 
 Optional, on your **desktop** only — `node_modules/` is gitignored and is **not** part of the Python server deploy.
