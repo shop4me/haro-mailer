@@ -37,7 +37,7 @@
 {% if rep and (rep.asset_mode or rep.asset_plan_json) %}
 <div class="card detail-section">
   <h3 class="card-title">Asset delivery</h3>
-  <p class="muted" style="margin:-8px 0 12px; font-size:0.9rem;">What the pipeline selected for this reply (paths, mode, metadata). The same summary is appended to the email body when a message is sent, if enabled in config.</p>
+  <p class="muted" style="margin:-8px 0 12px; font-size:0.9rem;">Internal only — not shown to the journalist. Outbound mail is the reply body plus attachments only.</p>
   <dl class="dl-inline">
     <dt>Asset mode</dt>
     <dd>{{ rep.asset_mode or '—' }}</dd>

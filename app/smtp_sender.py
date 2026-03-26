@@ -14,80 +14,8 @@ from app.models import Business, InboundEmail, Mailbox, Reply
 
 LOGGER = logging.getLogger(__name__)
 
-_MANIFEST_HEADER = "\n---\nImages included with this message:\n"
-
-
-def build_asset_delivery_manifest(reply: Reply) -> str:
-    """
-    Plain-text footer for the outbound email so operators (and the saved Reply row) show what was sent.
-    Idempotent: if the body already contains the manifest header, returns empty string.
-    """
-    if not settings.include_asset_manifest_in_email:
-        return ""
-    body = reply.reply_body or ""
-    if "Images included with this message:" in body:
-        return ""
-    if not getattr(reply, "asset_mode", None) and not (getattr(reply, "asset_plan_json", None) or "").strip():
-        return ""
-
-    lines: list[str] = [_MANIFEST_HEADER.rstrip("\n")]
-    mode = (getattr(reply, "asset_mode", None) or "").strip() or "—"
-    items: list[dict] = []
-    raw = getattr(reply, "selected_asset_metadata_json", None) or ""
-    if raw:
-        try:
-            parsed = json.loads(raw)
-            if isinstance(parsed, list):
-                items = [x for x in parsed if isinstance(x, dict)]
-        except (json.JSONDecodeError, TypeError):
-            pass
-
-    path_list: list[str] = []
-    raw_paths = getattr(reply, "inline_preview_paths_json", None) or getattr(
-        reply, "attachment_paths_json", None
-    )
-    if raw_paths:
-        try:
-            pl = json.loads(raw_paths)
-            if isinstance(pl, list):
-                path_list = [str(p) for p in pl if p]
-        except (json.JSONDecodeError, TypeError):
-            pass
-
-    if not items and not path_list:
-        st = getattr(reply, "asset_send_status", None) or ""
-        if st == "TEXT_ONLY" or mode == "no_visuals":
-            lines.append("(No image attachments — text-only pitch.)")
-        else:
-            lines.append("(No image files attached to this message.)")
-        lines.append("Asset mode: %s" % mode)
-        lines.append("Send status: %s" % (st or "—"))
-    else:
-        for it in items:
-            p = (it.get("path_or_url") or "").strip()
-            base = os.path.basename(p) if p else "—"
-            stype = (it.get("source_type") or "—").strip()
-            real = it.get("is_real")
-            if real is True:
-                tag = "real reference"
-            elif real is False:
-                tag = "styling concept (not a client project photo)"
-            else:
-                tag = stype
-            lines.append("• %s — %s" % (base, tag))
-        for p in path_list:
-            base = os.path.basename(p)
-            if base and not any(base in x for x in lines):
-                lines.append("• %s — attached" % base)
-        lines.append("Asset mode: %s" % mode)
-        if getattr(reply, "must_disclose_ai", False):
-            lines.append("AI/styling-concept disclosure was applied in the pitch where relevant.")
-
-    link = (getattr(reply, "full_res_link", None) or "").strip()
-    if link:
-        lines.append("Full-resolution link: %s" % link)
-
-    return "\n".join(lines) + "\n"
+# Outbound mail is only the drafted reply body plus optional image attachments.
+# Asset metadata stays in the dashboard (request detail), never appended for journalists.
 
 
 def reply_attachment_paths(reply: Reply) -> list[str]:
@@ -269,9 +197,7 @@ def send_reply(
         if inbound_email.message_id:
             msg["In-Reply-To"] = inbound_email.message_id
             msg["References"] = inbound_email.message_id
-    manifest = build_asset_delivery_manifest(reply)
-    final_body = (reply.reply_body or "") + (manifest or "")
-    msg.set_content(final_body)
+    msg.set_content(reply.reply_body or "")
 
     paths = attachment_paths or []
     if settings.enable_inline_image_previews and paths:
@@ -317,8 +243,6 @@ def send_reply(
         reply.sent_at = datetime.utcnow()
         reply.error_message = None
         reply.smtp_response = "OK"
-        if manifest:
-            reply.reply_body = final_body
         LOGGER.info("Sent reply id=%s to=%s", reply.id, destination_email)
         return True, "OK"
     except Exception as exc:
@@ -338,8 +262,6 @@ def send_reply(
                 reply.sent_at = datetime.utcnow()
                 reply.error_message = None
                 reply.smtp_response = "OK"
-                if manifest:
-                    reply.reply_body = final_body
                 LOGGER.info("Sent reply id=%s via fallback port %s", reply.id, alt)
                 return True, "OK"
             except Exception as exc2:
