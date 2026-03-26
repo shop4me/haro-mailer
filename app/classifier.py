@@ -515,6 +515,35 @@ class MatchResult:
     confidence: float
     reasoning_short: str
     topic_tags: list[str]
+    # Lightweight hints for asset_planner (business relevance stays in classify_request)
+    requires_visuals: bool = False
+    visual_request_confidence: float = 0.0
+
+
+def _visual_request_hints_from_text(text: str) -> tuple[bool, float]:
+    """Heuristic only; asset_planner does full decisioning."""
+    t = (text or "").lower()
+    score = 0.0
+    for k in (
+        "image",
+        "images",
+        "photo",
+        "photos",
+        "jpeg",
+        "png",
+        "jpg",
+        "hi-res",
+        "high res",
+        "visual",
+        "picture",
+        "gallery",
+        "screenshot",
+        "portfolio images",
+    ):
+        if k in t:
+            score += 0.08
+    score = min(1.0, score)
+    return score >= 0.35, score
 
 
 def _apply_regency_niche_gate_result(
@@ -533,8 +562,24 @@ def _apply_regency_niche_gate_result(
         result.topic_tags,
     )
     if not m:
-        return MatchResult(False, None, 0.0, reason, [])
-    return MatchResult(m, bid, result.confidence, reason, tags)
+        return MatchResult(
+            False,
+            None,
+            0.0,
+            reason,
+            [],
+            result.requires_visuals,
+            result.visual_request_confidence,
+        )
+    return MatchResult(
+        m,
+        bid,
+        result.confidence,
+        reason,
+        tags,
+        result.requires_visuals,
+        result.visual_request_confidence,
+    )
 
 
 def classify_request(
@@ -542,9 +587,10 @@ def classify_request(
     businesses: list[Business],
     inbound_source: str | None = None,
 ) -> MatchResult:
+    hv, hc = _visual_request_hints_from_text(request.request_text or "")
     enabled = [b for b in businesses if b.enabled]
     if not enabled:
-        return MatchResult(False, None, 0.0, "No enabled businesses configured.", [])
+        return MatchResult(False, None, 0.0, "No enabled businesses configured.", [], hv, hc)
 
     # We never appear in person for anyone.
     if _requires_in_person(request.request_text):
@@ -554,6 +600,8 @@ def classify_request(
             0.0,
             "Query requires in-person participation; we do not appear in person.",
             [],
+            hv,
+            hc,
         )
     # We don't send products/gifts except for TV stations.
     if _requires_products_or_gifts(request.request_text) and not _is_tv_station(request.outlet):
@@ -563,6 +611,8 @@ def classify_request(
             0.0,
             "Query requires sending/giving products or gifts; we only do this for TV stations.",
             [],
+            hv,
+            hc,
         )
 
     hg = _score_home_and_garden_topic(request)
@@ -582,6 +632,8 @@ def classify_request(
                     0.95,
                     "Home and garden topic — always respond (policy, strong heuristic).",
                     ["home_garden"],
+                    hv,
+                    hc,
                 ),
                 enabled,
                 inbound_source,
@@ -596,7 +648,7 @@ def classify_request(
 
     if not ai_result:
         return _apply_regency_niche_gate_result(
-            request, _select_from_heuristic(heuristic_scores), enabled, inbound_source
+            request, _select_from_heuristic(heuristic_scores, hv, hc), enabled, inbound_source
         )
 
     best_h_id, best_h_score = max(heuristic_scores.items(), key=lambda kv: kv[1], default=(None, 0.0))
@@ -622,7 +674,7 @@ def classify_request(
     reasoning = (ai_result.get("reasoning_short") or "Hybrid classification decision.")[:240]
     return _apply_regency_niche_gate_result(
         request,
-        MatchResult(matched, chosen_id, max(0.0, min(1.0, blended)), reasoning, tags),
+        MatchResult(matched, chosen_id, max(0.0, min(1.0, blended)), reasoning, tags, hv, hc),
         enabled,
         inbound_source,
     )
@@ -775,13 +827,17 @@ def _heuristic_scores(text: str, businesses: list[Business]) -> dict[int, float]
     return scores
 
 
-def _select_from_heuristic(scores: dict[int, float]) -> MatchResult:
+def _select_from_heuristic(
+    scores: dict[int, float], hv: bool, hc: float
+) -> MatchResult:
     if not scores:
-        return MatchResult(False, None, 0.0, "No businesses available.", [])
+        return MatchResult(False, None, 0.0, "No businesses available.", [], hv, hc)
     business_id, score = max(scores.items(), key=lambda kv: kv[1])
     if score < 0.2:
-        return MatchResult(False, None, score, "No reliable keyword match.", [])
-    return MatchResult(True, business_id, score, "Keyword heuristic matched business terms.", [])
+        return MatchResult(False, None, score, "No reliable keyword match.", [], hv, hc)
+    return MatchResult(
+        True, business_id, score, "Keyword heuristic matched business terms.", [], hv, hc
+    )
 
 
 def _classify_with_openai(

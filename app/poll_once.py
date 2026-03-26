@@ -1,13 +1,14 @@
 import json
 import logging
+import os
 import threading
 
 from sqlalchemy import select
 
+from app.asset_orchestrator import run_asset_reply_pipeline
 from app.classifier import MatchResult, classify_request
 from app.config import settings
 from app.db import get_session, init_db
-from app.drafter import draft_reply
 from app.regency_niche_gate import is_regency_business
 from app.haro_parser import (
     build_haro_query_id,
@@ -74,6 +75,15 @@ def _finalize_reply_after_draft(
         reply.error_message = "No destination email found."
         return sent_count
 
+    if getattr(reply, "manual_review_required", False):
+        reply.send_status = "DRAFT"
+        LOGGER.info(
+            "reply_manual_review request_id=%s reason=%s",
+            req.id,
+            getattr(reply, "manual_review_reason", None),
+        )
+        return sent_count
+
     hg_manual_only = bool(match.topic_tags and "home_garden" in match.topic_tags)
     hg_blocks_auto_send = hg_manual_only and not is_regency_business(business)
 
@@ -98,7 +108,21 @@ def _finalize_reply_after_draft(
             )
             return sent_count
         smtp_mb = smtp_mailbox_for_reply(session, business, inbound)
-        ok, _msg = send_reply(reply, destination, business, inbound, smtp_mailbox=smtp_mb)
+        attach_paths: list[str] = []
+        raw = getattr(reply, "inline_preview_paths_json", None) or ""
+        if raw:
+            try:
+                attach_paths = [p for p in json.loads(raw) if p and os.path.isfile(str(p))]
+            except (json.JSONDecodeError, TypeError):
+                attach_paths = []
+        ok, _msg = send_reply(
+            reply,
+            destination,
+            business,
+            inbound,
+            smtp_mailbox=smtp_mb,
+            attachment_paths=attach_paths or None,
+        )
         if ok:
             return sent_count + 1
         return sent_count
@@ -254,7 +278,7 @@ def process_pending_haro(session) -> int:
             if not business:
                 processed += 1
                 continue
-            draft_pair = draft_reply(req, business)
+            draft_pair, _asset_ctx, extras = run_asset_reply_pipeline(req, business, match)
             if draft_pair is None:
                 cls.matched = False
                 cls.matched_business_id = None
@@ -280,6 +304,16 @@ def process_pending_haro(session) -> int:
                 reply_subject=subject,
                 reply_body=body,
                 send_status="DRAFT",
+                asset_mode=extras.get("asset_mode"),
+                asset_plan_json=extras.get("asset_plan_json"),
+                selected_asset_metadata_json=extras.get("selected_asset_metadata_json"),
+                attachment_paths_json=extras.get("attachment_paths_json"),
+                inline_preview_paths_json=extras.get("inline_preview_paths_json"),
+                full_res_link=extras.get("full_res_link") or None,
+                must_disclose_ai=bool(extras.get("must_disclose_ai")),
+                manual_review_required=bool(extras.get("manual_review_required")),
+                manual_review_reason=extras.get("manual_review_reason"),
+                asset_send_status=extras.get("asset_send_status"),
             )
             session.add(reply)
             session.flush()
@@ -388,7 +422,7 @@ def reprocess_existing_requests(session, progress_callback=None):
             continue
         if reply and reply.send_status == "SENT":
             continue
-        draft_pair = draft_reply(req, business)
+        draft_pair, _ac, extras = run_asset_reply_pipeline(req, business, match)
         if draft_pair is None:
             cls.matched = False
             cls.matched_business_id = None
@@ -420,6 +454,16 @@ def reprocess_existing_requests(session, progress_callback=None):
             reply.reply_body = body
             reply.send_status = "DRAFT"
             reply.error_message = None
+            reply.asset_mode = extras.get("asset_mode")
+            reply.asset_plan_json = extras.get("asset_plan_json")
+            reply.selected_asset_metadata_json = extras.get("selected_asset_metadata_json")
+            reply.attachment_paths_json = extras.get("attachment_paths_json")
+            reply.inline_preview_paths_json = extras.get("inline_preview_paths_json")
+            reply.full_res_link = extras.get("full_res_link") or None
+            reply.must_disclose_ai = bool(extras.get("must_disclose_ai"))
+            reply.manual_review_required = bool(extras.get("manual_review_required"))
+            reply.manual_review_reason = extras.get("manual_review_reason")
+            reply.asset_send_status = extras.get("asset_send_status")
         else:
             session.add(
                 Reply(
@@ -428,6 +472,16 @@ def reprocess_existing_requests(session, progress_callback=None):
                     reply_subject=subject,
                     reply_body=body,
                     send_status="DRAFT",
+                    asset_mode=extras.get("asset_mode"),
+                    asset_plan_json=extras.get("asset_plan_json"),
+                    selected_asset_metadata_json=extras.get("selected_asset_metadata_json"),
+                    attachment_paths_json=extras.get("attachment_paths_json"),
+                    inline_preview_paths_json=extras.get("inline_preview_paths_json"),
+                    full_res_link=extras.get("full_res_link") or None,
+                    must_disclose_ai=bool(extras.get("must_disclose_ai")),
+                    manual_review_required=bool(extras.get("manual_review_required")),
+                    manual_review_reason=extras.get("manual_review_reason"),
+                    asset_send_status=extras.get("asset_send_status"),
                 )
             )
         session.flush()

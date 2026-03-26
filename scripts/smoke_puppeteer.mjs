@@ -16,7 +16,7 @@
 import puppeteer from "puppeteer";
 
 const url = process.env.HARO_SMOKE_URL || "http://142.93.187.80:18080/login";
-const expectTitle = "HARO Auto-Responder";
+const expectTitle = "Floatfire HARO";
 const headed =
   process.env.HARO_HEADED === "1" ||
   process.argv.includes("--headed") ||

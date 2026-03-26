@@ -147,6 +147,17 @@ class Reply(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     smtp_response: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    asset_mode: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    asset_plan_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    selected_asset_metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attachment_paths_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    inline_preview_paths_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    full_res_link: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    must_disclose_ai: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    manual_review_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    manual_review_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    asset_send_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
     haro_request: Mapped["HaroRequest"] = relationship("HaroRequest", back_populates="reply")
     business: Mapped["Business"] = relationship("Business", back_populates="replies")
 

@@ -7,6 +7,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _public_base_url_default() -> str:
+    explicit = (os.getenv("PUBLIC_BASE_URL") or "").strip()
+    if explicit:
+        return explicit.rstrip("/")
+    domain = (os.getenv("APP_DOMAIN", "floatfire.com") or "floatfire.com").strip()
+    return "https://%s" % domain
+
+
 def _as_bool(value: Optional[str], default: bool = False) -> bool:
     if value is None:
         return default
@@ -15,6 +23,11 @@ def _as_bool(value: Optional[str], default: bool = False) -> bool:
 
 @dataclass
 class Settings:
+    # Public hostname for branding and absolute links (default: Floatfire production domain).
+    app_domain: str = (os.getenv("APP_DOMAIN", "floatfire.com") or "floatfire.com").strip()
+    public_base_url: str = _public_base_url_default()
+    app_name: str = (os.getenv("APP_NAME", "Floatfire HARO") or "Floatfire HARO").strip()
+
     # Set DATABASE_URL in .env. Default local dev uses SQLite file in project directory.
     database_url: str = os.getenv("DATABASE_URL", "sqlite:///haro.db")
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
@@ -36,6 +49,16 @@ class Settings:
         if (os.getenv("HOME_GARDEN_BUSINESS_ID") or "").strip().isdigit()
         else None
     )
+
+    # Asset pipeline (conservative defaults)
+    enable_asset_automation: bool = _as_bool(os.getenv("ENABLE_ASSET_AUTOMATION"), False)
+    enable_ai_concept_visuals: bool = _as_bool(os.getenv("ENABLE_AI_CONCEPT_VISUALS"), False)
+    enable_inline_image_previews: bool = _as_bool(os.getenv("ENABLE_INLINE_IMAGE_PREVIEWS"), False)
+    max_inline_preview_images: int = int(os.getenv("MAX_INLINE_PREVIEW_IMAGES", "2"))
+    max_generated_candidates: int = int(os.getenv("MAX_GENERATED_CANDIDATES", "6"))
+    auto_send_concept_visuals: bool = _as_bool(os.getenv("AUTO_SEND_CONCEPT_VISUALS"), False)
+    auto_send_real_assets: bool = _as_bool(os.getenv("AUTO_SEND_REAL_ASSETS"), False)
+    asset_planner_use_llm: bool = _as_bool(os.getenv("ASSET_PLANNER_USE_LLM"), False)
 
 
 settings = Settings()

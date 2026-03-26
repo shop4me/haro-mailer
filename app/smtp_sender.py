@@ -1,4 +1,5 @@
 import logging
+import os
 import smtplib
 import ssl
 from datetime import datetime
@@ -7,6 +8,7 @@ from email.utils import parseaddr
 
 from sqlalchemy import select
 
+from app.config import settings
 from app.models import Business, InboundEmail, Mailbox, Reply
 
 LOGGER = logging.getLogger(__name__)
@@ -158,6 +160,7 @@ def send_reply(
     business: Business,
     inbound_email: InboundEmail | None = None,
     smtp_mailbox: Mailbox | None = None,
+    attachment_paths: list[str] | None = None,
 ) -> tuple[bool, str]:
     if reply.send_status == "SENT":
         return False, "Reply already sent"
@@ -180,6 +183,34 @@ def send_reply(
             msg["In-Reply-To"] = inbound_email.message_id
             msg["References"] = inbound_email.message_id
     msg.set_content(reply.reply_body)
+
+    paths = attachment_paths or []
+    if settings.enable_inline_image_previews and paths:
+        max_n = max(1, settings.max_inline_preview_images)
+        for path in paths[:max_n]:
+            if not path or not os.path.isfile(path):
+                continue
+            try:
+                with open(path, "rb") as f:
+                    data = f.read()
+            except OSError:
+                continue
+            lower = path.lower()
+            if lower.endswith((".jpg", ".jpeg")):
+                sub = "jpeg"
+            elif lower.endswith(".png"):
+                sub = "png"
+            elif lower.endswith(".webp"):
+                sub = "webp"
+            else:
+                sub = "jpeg"
+            msg.add_attachment(
+                data,
+                maintype="image",
+                subtype=sub,
+                filename=os.path.basename(path),
+            )
+            LOGGER.info("smtp attachment filename=%s bytes=%s", os.path.basename(path), len(data))
 
     smtp_host = (smtp_mailbox.smtp_host or "").strip()
     smtp_port = smtp_mailbox.smtp_port

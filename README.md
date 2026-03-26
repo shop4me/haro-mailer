@@ -1,4 +1,4 @@
-# HARO Auto-Responder
+# Floatfire HARO (HARO / SOS outreach)
 
 Production-oriented Python app to ingest HARO emails, split individual journalist requests, match each request to a business, draft a targeted response, and optionally send via SMTP with strict idempotency safeguards.
 
@@ -45,6 +45,10 @@ tests/
 
 ## .env template
 ```env
+APP_DOMAIN=floatfire.com
+PUBLIC_BASE_URL=https://floatfire.com
+APP_NAME=Floatfire HARO
+
 OPENAI_API_KEY=
 ADMIN_PASSWORD=change-me
 FLASK_SECRET_KEY=change-me-too

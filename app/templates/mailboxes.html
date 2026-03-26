@@ -16,7 +16,7 @@
       </div>
       <div class="form-group">
         <label for="imap_user">Email</label>
-        <input id="imap_user" name="imap_user" type="text" placeholder="user@example.com" autocomplete="username" value="{{ edit_mailbox.imap_user if edit_mailbox else '' }}" />
+        <input id="imap_user" name="imap_user" type="text" placeholder="press@{{ app_domain }}" autocomplete="username" value="{{ edit_mailbox.imap_user if edit_mailbox else '' }}" />
       </div>
       <div class="form-group">
         <label for="imap_password">Password{% if edit_mailbox %} <span class="muted">(loaded from database)</span>{% endif %}</label>
@@ -27,7 +27,7 @@
     <div class="form-grid">
       <div class="form-group">
         <label for="imap_host">IMAP host</label>
-        <input id="imap_host" name="imap_host" type="text" placeholder="imap.gmail.com" value="{{ edit_mailbox.imap_host if edit_mailbox else '' }}" />
+        <input id="imap_host" name="imap_host" type="text" placeholder="mail.{{ app_domain }}" value="{{ edit_mailbox.imap_host if edit_mailbox else '' }}" />
       </div>
       <div class="form-group">
         <label for="imap_port">IMAP port</label>
@@ -43,7 +43,7 @@
     <div class="form-grid">
       <div class="form-group">
         <label for="smtp_host">SMTP host</label>
-        <input id="smtp_host" name="smtp_host" type="text" placeholder="smtp.gmail.com" value="{{ edit_mailbox.smtp_host if edit_mailbox else '' }}" />
+        <input id="smtp_host" name="smtp_host" type="text" placeholder="mail.{{ app_domain }}" value="{{ edit_mailbox.smtp_host if edit_mailbox else '' }}" />
       </div>
       <div class="form-group">
         <label for="smtp_port">SMTP port</label>

@@ -58,6 +58,15 @@ def create_app() -> Flask:
     app = Flask(__name__)
     app.secret_key = settings.flask_secret_key
     app.jinja_env.filters["format_datetime"] = lambda dt: _format_datetime(dt)
+
+    @app.context_processor
+    def _inject_app_branding():
+        return {
+            "app_name": settings.app_name,
+            "app_domain": settings.app_domain,
+            "public_base_url": settings.public_base_url,
+        }
+
     init_db()
     app.register_blueprint(bp)
     _start_background_polling()

@@ -3,13 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{% block title %}HARO Auto-Responder{% endblock %}</title>
+    <title>{% block title %}{{ app_name }}{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
   </head>
   <body>
     <header class="app-header">
       <div class="wrap">
-        <h1>HARO Auto-Responder</h1>
+        <h1>{{ app_name }}</h1>
+        <p class="app-domain-hint muted" style="margin:-6px 0 0;font-size:0.85rem;">{{ app_domain }}</p>
         <nav class="app-nav">
           <a href="{{ url_for('main.index') }}">Dashboard</a>
           <a href="{{ url_for('main.inbound_emails') }}">Inbound</a>

@@ -38,6 +38,7 @@ def init_db() -> None:
     _add_mailbox_smtp_columns_if_missing()
     _add_business_mailbox_id_column_if_missing()
     _add_business_strict_ai_columns_if_missing()
+    _add_reply_asset_columns_if_missing()
     _seed_regency_strict_ai_defaults()
 
 
@@ -87,6 +88,29 @@ def _add_business_strict_ai_columns_if_missing() -> None:
         "ALTER TABLE businesses ADD COLUMN strict_ai_relevance_enabled BOOLEAN DEFAULT 0 NOT NULL",
         "ALTER TABLE businesses ADD COLUMN strict_ai_relevance_system_prompt TEXT DEFAULT '' NOT NULL",
         "ALTER TABLE businesses ADD COLUMN strict_ai_relevance_min_confidence FLOAT DEFAULT 0.82 NOT NULL",
+    ]
+    for sql in stmts:
+        try:
+            with engine.connect() as conn:
+                conn.execute(text(sql))
+                conn.commit()
+        except Exception:
+            pass
+
+
+def _add_reply_asset_columns_if_missing() -> None:
+    """Asset pipeline metadata on replies (existing DBs get columns via ALTER)."""
+    stmts = [
+        "ALTER TABLE replies ADD COLUMN asset_mode VARCHAR(32)",
+        "ALTER TABLE replies ADD COLUMN asset_plan_json TEXT",
+        "ALTER TABLE replies ADD COLUMN selected_asset_metadata_json TEXT",
+        "ALTER TABLE replies ADD COLUMN attachment_paths_json TEXT",
+        "ALTER TABLE replies ADD COLUMN inline_preview_paths_json TEXT",
+        "ALTER TABLE replies ADD COLUMN full_res_link VARCHAR(1024)",
+        "ALTER TABLE replies ADD COLUMN must_disclose_ai BOOLEAN DEFAULT 0 NOT NULL",
+        "ALTER TABLE replies ADD COLUMN manual_review_required BOOLEAN DEFAULT 0 NOT NULL",
+        "ALTER TABLE replies ADD COLUMN manual_review_reason TEXT",
+        "ALTER TABLE replies ADD COLUMN asset_send_status VARCHAR(32)",
     ]
     for sql in stmts:
         try:

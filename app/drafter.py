@@ -1,11 +1,15 @@
 import logging
 import re
+from typing import TYPE_CHECKING
 
 from openai import OpenAI
 
 from app.config import settings
 from app.models import Business, HaroRequest
 from app.regency_niche_gate import is_regency_business
+
+if TYPE_CHECKING:
+    from app.asset_types import AssetContext, AssetMode
 
 LOGGER = logging.getLogger(__name__)
 
@@ -134,8 +138,12 @@ def _sanitize_draft_style(text: str, *, single_line: bool = False) -> str:
     return s.strip()
 
 
-def draft_reply(request: HaroRequest, business: Business) -> tuple[str, str] | None:
-    generated = _draft_with_openai(request, business)
+def draft_reply(
+    request: HaroRequest,
+    business: Business,
+    asset_context: "AssetContext | None" = None,
+) -> tuple[str, str] | None:
+    generated = _draft_with_openai(request, business, asset_context=asset_context)
     if generated:
         subj, body = generated
         body = _sanitize_draft_style(body)
@@ -156,14 +164,16 @@ def draft_reply(request: HaroRequest, business: Business) -> tuple[str, str] | N
     subject = "HARO pitch for %s" % tail
     subject = _sanitize_draft_style(subject, single_line=True)
     sig_only = (business.signature or "").strip()
+    asset_note = _fallback_asset_note(asset_context)
     body = (
         "Hi %s,\n\n"
         "Thanks for putting this out there. We work in %s and can speak to what you are looking for "
-        "around %s. Happy to share a short quote or more detail if useful."
+        "around %s. Happy to share a short quote or more detail if useful.%s"
         % (
             first,
             (business.nature_of_business or business.name).strip(),
             (request.category or "this topic").strip(),
+            asset_note,
         )
     )
     if sig_only:
@@ -178,7 +188,31 @@ def draft_reply(request: HaroRequest, business: Business) -> tuple[str, str] | N
     return subject, body
 
 
-def _draft_with_openai(request: HaroRequest, business: Business) -> tuple[str, str] | None:
+def _fallback_asset_note(asset_context: "AssetContext | None") -> str:
+    if not asset_context:
+        return ""
+    from app.asset_types import AssetMode
+
+    if asset_context.asset_mode == AssetMode.no_visuals:
+        return ""
+    if asset_context.asset_mode == AssetMode.real_only:
+        return (
+            "\n\nWe can provide relevant project images as attachments or links, "
+            "pulled from our verified materials."
+        )
+    if asset_context.asset_mode == AssetMode.concept_allowed:
+        return (
+            "\n\nWe can share separate styling concept visuals as references. "
+            "These are illustrative examples, not photographs of specific completed client projects."
+        )
+    return ""
+
+
+def _draft_with_openai(
+    request: HaroRequest,
+    business: Business,
+    asset_context: "AssetContext | None" = None,
+) -> tuple[str, str] | None:
     if not settings.openai_api_key:
         return None
     first = _first_name(request.journalist_name)
@@ -194,6 +228,7 @@ def _draft_with_openai(request: HaroRequest, business: Business) -> tuple[str, s
         "Stop at the last sentence of the pitch. The software appends the official signature block after you. "
         "Only state facts you can infer from the business profile and the query. Do not invent credentials or awards."
     )
+    asset_block = _asset_instructions_for_prompt(asset_context)
     user = (
         "Write one email in reply to the journalist query.\n\n"
         "Output exactly in this format (SUBJECT on its own line, then the word BODY alone on a line, then the email).\n"
@@ -205,6 +240,7 @@ def _draft_with_openai(request: HaroRequest, business: Business) -> tuple[str, s
         "Journalist first name for the greeting: %s\n\n"
         "BUSINESS (facts you may use in the pitch only, do not paste contact or signature into the body)\n"
         "Name %s\nContact %s\nNature %s\nKeywords %s\nBrand voice %s\nWebsite %s\n\n"
+        "%s\n"
         "QUERY\n%s"
         % (
             first,
@@ -214,6 +250,7 @@ def _draft_with_openai(request: HaroRequest, business: Business) -> tuple[str, s
             business.keywords,
             business.brand_voice,
             business.website_url,
+            asset_block,
             (request.request_text or "")[:5000],
         )
     )
@@ -257,3 +294,31 @@ def _draft_with_openai(request: HaroRequest, business: Business) -> tuple[str, s
     except Exception as exc:
         LOGGER.exception("OpenAI draft failed: %s", exc)
         return None
+
+
+def _asset_instructions_for_prompt(asset_context: "AssetContext | None") -> str:
+    if not asset_context:
+        return ""
+    from app.asset_types import AssetMode
+
+    mode = asset_context.asset_mode
+    lines = ["ASSET AND VISUAL RULES FOR THIS EMAIL"]
+    if mode == AssetMode.no_visuals:
+        lines.append("Do not promise images or attachments. Short quote-style pitch only.")
+    elif mode == AssetMode.real_only:
+        lines.append(
+            "The sender may attach or link real project images. Mention that images are available "
+            "without inventing project names or locations. Do not claim AI-generated content."
+        )
+    elif mode == AssetMode.concept_allowed:
+        lines.append(
+            "If visuals are referenced, they are styling concepts or references only, not photos of "
+            "completed client jobs. Use honest language. If a disclosure line is needed, add one short sentence."
+        )
+    if asset_context.must_disclose_ai:
+        lines.append(
+            "Include one brief natural sentence that attached or linked concept visuals are illustrative, not real installs."
+        )
+    if asset_context.images_required_in_first_reply:
+        lines.append("The journalist asked for visuals in the first reply. Acknowledge that previews follow or are attached.")
+    return "\n".join(lines) + "\n\n"
