@@ -53,7 +53,10 @@ When blocked, `manual_review_required` is set on the `Reply` and the message sta
 
 SMTP sends **only** `reply_body` (the drafted pitch) plus optional **image attachments**. Asset metadata, modes, and internal paths are **not** appended to the message — they appear only on the **Request detail** → **Asset delivery** card in the app.
 
-Optional **`REPLY_BCC_EMAIL`**: when set, every successful send also BCCs that address (same message and attachments). Clear the env var to disable.
+**Operator copy of each send** (same body + attachments the journalist gets):
+
+- **`REPLY_COPY_EMAIL`** — your address (optional). **`REPLY_BCC_EMAIL`** is still read as an alias.
+- **`REPLY_COPY_MODE`** — `separate` (default): second SMTP send to `REPLY_COPY_EMAIL` with an identical message. `bcc`: one send with a `Bcc` header (same MIME to all recipients). Clear `REPLY_COPY_EMAIL` to disable.
 
 ## Database
 

@@ -169,6 +169,94 @@ def test_smtp_settings(
             return False, _friendly_smtp_error(e2)
 
 
+def _add_image_attachments(msg: EmailMessage, attachment_paths: list[str] | None) -> None:
+    paths = attachment_paths or []
+    if not settings.enable_inline_image_previews or not paths:
+        return
+    max_n = max(1, settings.max_inline_preview_images)
+    for path in paths[:max_n]:
+        if not path or not os.path.isfile(path):
+            continue
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+        except OSError:
+            continue
+        lower = path.lower()
+        if lower.endswith((".jpg", ".jpeg")):
+            sub = "jpeg"
+        elif lower.endswith(".png"):
+            sub = "png"
+        elif lower.endswith(".webp"):
+            sub = "webp"
+        else:
+            sub = "jpeg"
+        msg.add_attachment(
+            data,
+            maintype="image",
+            subtype=sub,
+            filename=os.path.basename(path),
+        )
+        LOGGER.info("smtp attachment filename=%s bytes=%s", os.path.basename(path), len(data))
+
+
+def _build_reply_email_message(
+    reply: Reply,
+    to_addr: str,
+    from_addr: str,
+    inbound_email: InboundEmail | None,
+    attachment_paths: list[str] | None,
+) -> EmailMessage:
+    msg = EmailMessage()
+    msg["Subject"] = reply.reply_subject
+    msg["From"] = from_addr
+    msg["To"] = to_addr
+    if inbound_email and inbound_email.message_id:
+        msg["In-Reply-To"] = inbound_email.message_id
+        msg["References"] = inbound_email.message_id
+    msg.set_content(reply.reply_body or "")
+    _add_image_attachments(msg, attachment_paths)
+    return msg
+
+
+def _smtp_send_message_with_failover(
+    smtp_host: str,
+    initial_port: int,
+    smtp_user: str,
+    smtp_password: str,
+    msg: EmailMessage,
+    reply_id: int,
+) -> tuple[bool, str]:
+    port = int(initial_port) if initial_port else 587
+    try:
+        _smtp_session(
+            smtp_host,
+            port,
+            smtp_user,
+            smtp_password,
+            timeout=30,
+            after_login=lambda s: s.send_message(msg),
+        )
+        return True, "OK"
+    except Exception as exc:
+        alt = _alternate_submission_port(port)
+        if alt is not None and _smtp_failover_eligible(exc):
+            try:
+                LOGGER.warning("SMTP retry reply id=%s on port %s after: %s", reply_id, alt, exc)
+                _smtp_session(
+                    smtp_host,
+                    alt,
+                    smtp_user,
+                    smtp_password,
+                    timeout=30,
+                    after_login=lambda s: s.send_message(msg),
+                )
+                return True, "OK"
+            except Exception as exc2:
+                exc = exc2
+        return False, _friendly_smtp_error(exc)
+
+
 def send_reply(
     reply: Reply,
     destination_email: str,
@@ -189,91 +277,71 @@ def send_reply(
     if not smtp_user:
         return False, "The linked mailbox has no email address for login."
     from_addr = smtp_user
-    msg = EmailMessage()
-    msg["Subject"] = reply.reply_subject
-    msg["From"] = from_addr
-    msg["To"] = destination_email
-    if settings.reply_bcc_email:
-        msg["Bcc"] = settings.reply_bcc_email
-        LOGGER.info("smtp reply id=%s bcc copy enabled", reply.id)
-    if inbound_email:
-        if inbound_email.message_id:
-            msg["In-Reply-To"] = inbound_email.message_id
-            msg["References"] = inbound_email.message_id
-    msg.set_content(reply.reply_body or "")
-
-    paths = attachment_paths or []
-    if settings.enable_inline_image_previews and paths:
-        max_n = max(1, settings.max_inline_preview_images)
-        for path in paths[:max_n]:
-            if not path or not os.path.isfile(path):
-                continue
-            try:
-                with open(path, "rb") as f:
-                    data = f.read()
-            except OSError:
-                continue
-            lower = path.lower()
-            if lower.endswith((".jpg", ".jpeg")):
-                sub = "jpeg"
-            elif lower.endswith(".png"):
-                sub = "png"
-            elif lower.endswith(".webp"):
-                sub = "webp"
-            else:
-                sub = "jpeg"
-            msg.add_attachment(
-                data,
-                maintype="image",
-                subtype=sub,
-                filename=os.path.basename(path),
-            )
-            LOGGER.info("smtp attachment filename=%s bytes=%s", os.path.basename(path), len(data))
-
     smtp_host = (smtp_mailbox.smtp_host or "").strip()
     smtp_port = smtp_mailbox.smtp_port
     port = int(smtp_port) if smtp_port else 587
-    try:
-        _smtp_session(
-            smtp_host,
-            port,
-            smtp_user,
-            smtp_password,
-            timeout=30,
-            after_login=lambda s: s.send_message(msg),
+
+    copy_to = settings.reply_copy_email
+    copy_mode = settings.reply_copy_mode
+
+    def send_one(msg: EmailMessage, label: str) -> tuple[bool, str]:
+        ok, err = _smtp_send_message_with_failover(
+            smtp_host, port, smtp_user, smtp_password, msg, reply.id
         )
+        if ok:
+            LOGGER.info("smtp reply id=%s %s ok", reply.id, label)
+        return ok, err
+
+    if copy_to and copy_mode == "separate":
+        msg_journalist = _build_reply_email_message(
+            reply, destination_email, from_addr, inbound_email, attachment_paths
+        )
+        ok, err = send_one(msg_journalist, "to_journalist")
+        if not ok:
+            reply.send_status = "FAILED"
+            reply.error_message = err
+            reply.smtp_response = "ERROR"
+            LOGGER.exception("SMTP send failed reply id=%s", reply.id)
+            return False, err
+        msg_copy = _build_reply_email_message(
+            reply, copy_to, from_addr, inbound_email, attachment_paths
+        )
+        ok2, err2 = send_one(msg_copy, "operator_copy")
+        if not ok2:
+            LOGGER.error(
+                "operator copy send failed reply id=%s to=%s: %s",
+                reply.id,
+                copy_to,
+                err2,
+            )
         reply.send_status = "SENT"
         reply.sent_at = datetime.utcnow()
         reply.error_message = None
         reply.smtp_response = "OK"
-        LOGGER.info("Sent reply id=%s to=%s", reply.id, destination_email)
+        LOGGER.info("Sent reply id=%s to=%s (operator copy mode=separate)", reply.id, destination_email)
         return True, "OK"
-    except Exception as exc:
-        alt = _alternate_submission_port(port)
-        if alt is not None and _smtp_failover_eligible(exc):
-            try:
-                LOGGER.warning("SMTP retry id=%s on port %s after: %s", reply.id, alt, exc)
-                _smtp_session(
-                    smtp_host,
-                    alt,
-                    smtp_user,
-                    smtp_password,
-                    timeout=30,
-                    after_login=lambda s: s.send_message(msg),
-                )
-                reply.send_status = "SENT"
-                reply.sent_at = datetime.utcnow()
-                reply.error_message = None
-                reply.smtp_response = "OK"
-                LOGGER.info("Sent reply id=%s via fallback port %s", reply.id, alt)
-                return True, "OK"
-            except Exception as exc2:
-                exc = exc2
+
+    msg = _build_reply_email_message(
+        reply, destination_email, from_addr, inbound_email, attachment_paths
+    )
+    if copy_to and copy_mode == "bcc":
+        msg["Bcc"] = copy_to
+        LOGGER.info("smtp reply id=%s operator copy mode=bcc", reply.id)
+
+    ok, err = send_one(msg, "to_journalist" + ("+bcc" if copy_to and copy_mode == "bcc" else ""))
+    if not ok:
         reply.send_status = "FAILED"
-        reply.error_message = str(exc)
+        reply.error_message = err
         reply.smtp_response = "ERROR"
         LOGGER.exception("SMTP send failed reply id=%s", reply.id)
-        return False, _friendly_smtp_error(exc)
+        return False, err
+
+    reply.send_status = "SENT"
+    reply.sent_at = datetime.utcnow()
+    reply.error_message = None
+    reply.smtp_response = "OK"
+    LOGGER.info("Sent reply id=%s to=%s", reply.id, destination_email)
+    return True, "OK"
 
 
 def _header_lookup(headers_text: str, name: str) -> str | None:

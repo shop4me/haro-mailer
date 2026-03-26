@@ -15,6 +15,11 @@ def _public_base_url_default() -> str:
     return "https://%s" % domain
 
 
+def _reply_copy_mode() -> str:
+    m = (os.getenv("REPLY_COPY_MODE") or "separate").strip().lower()
+    return m if m in ("bcc", "separate") else "separate"
+
+
 def _as_bool(value: Optional[str], default: bool = False) -> bool:
     if value is None:
         return default
@@ -60,8 +65,13 @@ class Settings:
     auto_send_real_assets: bool = _as_bool(os.getenv("AUTO_SEND_REAL_ASSETS"), False)
     asset_planner_use_llm: bool = _as_bool(os.getenv("ASSET_PLANNER_USE_LLM"), False)
 
-    # Optional BCC on every outbound HARO reply (same body + attachments as To). Empty = disabled.
-    reply_bcc_email: Optional[str] = (os.getenv("REPLY_BCC_EMAIL") or "").strip() or None
+    # Operator copy of every sent reply (same body + attachments as the journalist sees).
+    # REPLY_BCC_EMAIL still works as an alias for REPLY_COPY_EMAIL.
+    reply_copy_email: Optional[str] = (
+        (os.getenv("REPLY_COPY_EMAIL") or os.getenv("REPLY_BCC_EMAIL") or "").strip() or None
+    )
+    # "separate" = second SMTP send to reply_copy_email (default). "bcc" = one send with Bcc header.
+    reply_copy_mode: str = _reply_copy_mode()
 
 
 settings = Settings()
