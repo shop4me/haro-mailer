@@ -48,6 +48,11 @@ When blocked, `manual_review_required` is set on the `Reply` and the message sta
 | `AUTO_SEND_CONCEPT_VISUALS` | false | Allow auto-send when AI concept assets are selected. |
 | `AUTO_SEND_REAL_ASSETS` | false | Allow auto-send when real assets are attached. |
 | `ASSET_PLANNER_USE_LLM` | false | Optional OpenAI pass to refine `visual_brief`. |
+| `INCLUDE_ASSET_MANIFEST_IN_EMAIL` | true | When true, `send_reply` appends a short plain-text block listing attached files, asset mode, and disclosure note; the saved `reply_body` is updated to match what was sent. |
+
+## Outbound email manifest
+
+If `INCLUDE_ASSET_MANIFEST_IN_EMAIL` is true, the SMTP layer appends a footer after the pitch body (see `build_asset_delivery_manifest` in `app/smtp_sender.py`). The **Request detail** page also shows the same metadata in the **Asset delivery** card.
 
 ## Database
 

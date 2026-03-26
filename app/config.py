@@ -59,6 +59,10 @@ class Settings:
     auto_send_concept_visuals: bool = _as_bool(os.getenv("AUTO_SEND_CONCEPT_VISUALS"), False)
     auto_send_real_assets: bool = _as_bool(os.getenv("AUTO_SEND_REAL_ASSETS"), False)
     asset_planner_use_llm: bool = _as_bool(os.getenv("ASSET_PLANNER_USE_LLM"), False)
+    # Append a short plain-text block to outbound mail listing what was attached (and mode).
+    include_asset_manifest_in_email: bool = _as_bool(
+        os.getenv("INCLUDE_ASSET_MANIFEST_IN_EMAIL"), True
+    )
 
 
 settings = Settings()

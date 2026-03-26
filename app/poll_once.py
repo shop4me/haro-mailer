@@ -25,7 +25,7 @@ from app.models import (
     Mailbox,
     Reply,
 )
-from app.smtp_sender import resolve_destination, send_reply, smtp_mailbox_for_reply
+from app.smtp_sender import reply_attachment_paths, resolve_destination, send_reply, smtp_mailbox_for_reply
 from app.utils import now_utc, setup_logging
 
 LOGGER = logging.getLogger(__name__)
@@ -108,13 +108,7 @@ def _finalize_reply_after_draft(
             )
             return sent_count
         smtp_mb = smtp_mailbox_for_reply(session, business, inbound)
-        attach_paths: list[str] = []
-        raw = getattr(reply, "inline_preview_paths_json", None) or ""
-        if raw:
-            try:
-                attach_paths = [p for p in json.loads(raw) if p and os.path.isfile(str(p))]
-            except (json.JSONDecodeError, TypeError):
-                attach_paths = []
+        attach_paths = reply_attachment_paths(reply)
         ok, _msg = send_reply(
             reply,
             destination,

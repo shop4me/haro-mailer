@@ -18,7 +18,13 @@ from app.regency_ai_relevance import (
     REGENCY_RELEVANCE_JSON_SCHEMA,
     REGENCY_RELEVANCE_SYSTEM_PROMPT,
 )
-from app.smtp_sender import resolve_destination, send_reply, smtp_mailbox_for_reply, test_smtp_settings
+from app.smtp_sender import (
+    reply_attachment_paths,
+    resolve_destination,
+    send_reply,
+    smtp_mailbox_for_reply,
+    test_smtp_settings,
+)
 
 bp = Blueprint("main", __name__)
 _logger = logging.getLogger(__name__)
@@ -302,7 +308,10 @@ def haro_request_detail(request_id: int):
                     flash("No destination email found", "error")
                 else:
                     smtp_mb = smtp_mailbox_for_reply(db, biz, inbound)
-                    ok, msg = send_reply(rep, destination, biz, inbound, smtp_mailbox=smtp_mb)
+                    attach = reply_attachment_paths(rep) or None
+                    ok, msg = send_reply(
+                        rep, destination, biz, inbound, smtp_mailbox=smtp_mb, attachment_paths=attach
+                    )
                     flash("Sent" if ok else f"Failed: {msg}", "info")
             elif action == "skip":
                 rep.send_status = "SKIPPED"
@@ -352,7 +361,8 @@ def reply_send(reply_id: int):
             flash("No destination email found for this request.", "error")
             return redirect(url_for("main.replies"))
         smtp_mb = smtp_mailbox_for_reply(db, biz, inbound)
-        ok, msg = send_reply(rep, destination, biz, inbound, smtp_mailbox=smtp_mb)
+        attach = reply_attachment_paths(rep) or None
+        ok, msg = send_reply(rep, destination, biz, inbound, smtp_mailbox=smtp_mb, attachment_paths=attach)
         flash("Sent." if ok else ("Send failed: %s" % msg), "info" if ok else "error")
     return redirect(url_for("main.replies"))
 

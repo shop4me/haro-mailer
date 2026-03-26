@@ -34,6 +34,32 @@
   </dl>
 </div>
 {% endif %}
+{% if rep and (rep.asset_mode or rep.asset_plan_json) %}
+<div class="card detail-section">
+  <h3 class="card-title">Asset delivery</h3>
+  <p class="muted" style="margin:-8px 0 12px; font-size:0.9rem;">What the pipeline selected for this reply (paths, mode, metadata). The same summary is appended to the email body when a message is sent, if enabled in config.</p>
+  <dl class="dl-inline">
+    <dt>Asset mode</dt>
+    <dd>{{ rep.asset_mode or '—' }}</dd>
+    <dt>Send status (asset)</dt>
+    <dd>{{ rep.asset_send_status or '—' }}</dd>
+    <dt>Manual review</dt>
+    <dd>{% if rep.manual_review_required %}Yes — {{ rep.manual_review_reason or '—' }}{% else %}No{% endif %}</dd>
+    <dt>Must disclose AI</dt>
+    <dd>{{ rep.must_disclose_ai }}</dd>
+    <dt>Inline / preview paths</dt>
+    <dd><div class="pre-block">{{ rep.inline_preview_paths_json or '—' }}</div></dd>
+    <dt>Attachment paths</dt>
+    <dd><div class="pre-block">{{ rep.attachment_paths_json or '—' }}</div></dd>
+    <dt>Full-res link</dt>
+    <dd>{{ rep.full_res_link or '—' }}</dd>
+    <dt>Selected assets (JSON)</dt>
+    <dd><div class="pre-block" style="max-height:200px; overflow:auto;">{{ rep.selected_asset_metadata_json or '—' }}</div></dd>
+    <dt>Asset plan (JSON)</dt>
+    <dd><div class="pre-block" style="max-height:200px; overflow:auto;">{{ rep.asset_plan_json or '—' }}</div></dd>
+  </dl>
+</div>
+{% endif %}
 {% if rep %}
 <div class="card detail-section">
   <h3 class="card-title">Your message (saved — draft or sent) <span class="badge badge-{{ rep.send_status|lower }}">{{ rep.send_status }}</span></h3>
