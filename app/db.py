@@ -39,6 +39,7 @@ def init_db() -> None:
     _add_business_mailbox_id_column_if_missing()
     _add_business_strict_ai_columns_if_missing()
     _add_reply_asset_columns_if_missing()
+    _add_classification_per_business_audit_if_missing()
     _seed_regency_strict_ai_defaults()
 
 
@@ -119,6 +120,17 @@ def _add_reply_asset_columns_if_missing() -> None:
                 conn.commit()
         except Exception:
             pass
+
+
+def _add_classification_per_business_audit_if_missing() -> None:
+    try:
+        with engine.connect() as conn:
+            conn.execute(
+                text("ALTER TABLE classifications ADD COLUMN per_business_audit_json TEXT DEFAULT '[]' NOT NULL")
+            )
+            conn.commit()
+    except Exception:
+        pass
 
 
 def _seed_regency_strict_ai_defaults() -> None:

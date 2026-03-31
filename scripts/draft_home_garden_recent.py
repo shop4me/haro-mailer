@@ -92,6 +92,7 @@ def main() -> int:
                         confidence=match.confidence,
                         reasoning_short=match.reasoning_short,
                         topic_tags=json.dumps(match.topic_tags),
+                        per_business_audit_json=json.dumps(getattr(match, "per_business_audit", None) or []),
                     )
                     session.add(cls)
                     session.flush()
@@ -101,6 +102,7 @@ def main() -> int:
                     cls.confidence = match.confidence
                     cls.reasoning_short = match.reasoning_short
                     cls.topic_tags = json.dumps(match.topic_tags)
+                    cls.per_business_audit_json = json.dumps(getattr(match, "per_business_audit", None) or [])
 
                 draft_pair = draft_reply(req, business)
                 if draft_pair is None:

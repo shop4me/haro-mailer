@@ -130,6 +130,8 @@ class Classification(Base):
     confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     reasoning_short: Mapped[str] = mapped_column(Text, nullable=False, default="")
     topic_tags: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    # Per-business relevance audit (JSON array): id, name, relevant, reason, source
+    per_business_audit_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
 
     haro_request: Mapped["HaroRequest"] = relationship("HaroRequest", back_populates="classification")
 

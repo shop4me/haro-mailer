@@ -280,6 +280,33 @@ def strict_relevance_gate_applies(business: Business | None) -> bool:
     return bool(getattr(business, "strict_ai_relevance_enabled", False))
 
 
+def _upsert_strict_audit(
+    audit: list[dict],
+    biz: Business,
+    relevant: bool,
+    reason: str,
+) -> None:
+    bid = biz.id
+    name = (biz.name or "").strip()
+    for row in audit:
+        if row.get("business_id") == bid:
+            row["relevant"] = relevant
+            row["reason"] = reason[:500]
+            row["source"] = "strict_ai_relevance"
+            if name:
+                row["name"] = name
+            return
+    audit.append(
+        {
+            "business_id": bid,
+            "name": name or ("Business %s" % bid),
+            "relevant": relevant,
+            "reason": reason[:500],
+            "source": "strict_ai_relevance",
+        }
+    )
+
+
 def apply_regency_relevance_gate(
     request: HaroRequest,
     matched: bool,
@@ -288,17 +315,19 @@ def apply_regency_relevance_gate(
     inbound_source: str | None,
     reasoning_short: str,
     topic_tags: list[str],
-) -> tuple[bool, int | None, str, list[str]]:
+    per_business_audit: list[dict] | None = None,
+) -> tuple[bool, int | None, str, list[str], list[dict]]:
     """
     If the matched business uses strict AI relevance (Regency Shop or enabled), run the classifier.
-    Returns (matched, business_id, reasoning_short, topic_tags).
+    Returns (matched, business_id, reasoning_short, topic_tags, per_business_audit).
     """
+    audit = list(per_business_audit or [])
     if not matched or not matched_business_id:
-        return matched, matched_business_id, reasoning_short, topic_tags
+        return matched, matched_business_id, reasoning_short, topic_tags, audit
 
     biz = next((b for b in businesses if b.id == matched_business_id), None)
     if not strict_relevance_gate_applies(biz):
-        return matched, matched_business_id, reasoning_short, topic_tags
+        return matched, matched_business_id, reasoning_short, topic_tags, audit
 
     min_conf = _min_conf_for_business(biz)
     result = classify_regency_relevance(request, biz)
@@ -315,7 +344,8 @@ def apply_regency_relevance_gate(
                 "Strict AI relevance: confidence %.2f below threshold (need >= %.2f). %s"
                 % (result.confidence, min_conf, result.reasoning[:120])
             )
-        return False, None, reason[:240], []
+        _upsert_strict_audit(audit, biz, False, reason)
+        return False, None, reason[:240], [], audit
 
     tags = list(topic_tags)
     if "strict_ai_relevant" not in tags:
@@ -332,7 +362,8 @@ def apply_regency_relevance_gate(
         result.confidence,
         result.reasoning[:120],
     )
-    return True, matched_business_id, new_reason[:240], tags
+    _upsert_strict_audit(audit, biz, True, new_reason)
+    return True, matched_business_id, new_reason[:240], tags, audit
 
 
 # Backward-compatible name for classifier imports

@@ -56,13 +56,14 @@ class TestApplyGate:
             raise AssertionError("classifier should not run for non-Regency")
 
         monkeypatch.setattr("app.regency_ai_relevance.classify_regency_relevance", _fail)
-        m, bid, reason, tags = apply_regency_relevance_gate(
+        m, bid, reason, tags, _audit = apply_regency_relevance_gate(
             _req("anything"),
             True,
             99,
             [_other_biz()],
             "HARO",
             "heuristic",
+            [],
             [],
         )
         assert m and bid == 99 and reason == "heuristic"
@@ -77,7 +78,7 @@ class TestApplyGate:
                 "none",
             ),
         )
-        m, bid, reason, tags = apply_regency_relevance_gate(
+        m, bid, reason, tags, _audit = apply_regency_relevance_gate(
             _req("Parkinson's physicians for awareness month"),
             True,
             7,
@@ -85,6 +86,7 @@ class TestApplyGate:
             "SOS",
             "prior",
             ["home_garden"],
+            [],
         )
         assert not m and bid is None
         assert "NOT_RELEVANT" in reason
@@ -100,7 +102,7 @@ class TestApplyGate:
                 "cabinetry",
             ),
         )
-        m, bid, reason, tags = apply_regency_relevance_gate(
+        m, bid, reason, tags, _audit = apply_regency_relevance_gate(
             _req("Standard kitchen cabinet sizes?"),
             True,
             7,
@@ -108,6 +110,7 @@ class TestApplyGate:
             "HARO",
             "match",
             ["home_garden"],
+            [],
         )
         assert m and bid == 7
         assert "RELEVANT" in reason
@@ -174,13 +177,14 @@ class TestApplyGate:
                     d, c, "mock", "furniture" if d == "RELEVANT" else "none"
                 ),
             )
-            m, bid, _, _ = apply_regency_relevance_gate(
+            m, bid, _, _, _ = apply_regency_relevance_gate(
                 _req(query),
                 True,
                 7,
                 [_regency()],
                 "HARO",
                 "x",
+                [],
                 [],
             )
             assert bool(m) == expect_allow, (query, decision, expect_allow)

@@ -29,9 +29,37 @@
     <dd>{{ cls.matched_business_id or '—' }}</dd>
     <dt>Confidence</dt>
     <dd>{{ '%.2f'|format(cls.confidence) }}</dd>
-    <dt>Reasoning</dt>
+    <dt>Reasoning (overall)</dt>
     <dd>{{ cls.reasoning_short }}</dd>
   </dl>
+</div>
+{% endif %}
+{% if audit_rows %}
+<div class="card detail-section">
+  <h3 class="card-title">Per-business relevance</h3>
+  <p class="muted" style="margin:-8px 0 12px; font-size:0.9rem;">Each enabled business is evaluated for this request. Sources: <code>ai_classifier</code> (main model), <code>strict_ai_relevance</code> (Regency or strict-enabled businesses only), <code>keyword_heuristic</code> (fallback), <code>policy</code> / <code>home_garden_policy</code>.</p>
+  <div class="audit-table-wrap" style="overflow-x:auto;">
+    <table class="audit-table" style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+      <thead>
+        <tr style="text-align:left; border-bottom:1px solid var(--border, #ddd);">
+          <th style="padding:8px;">Business</th>
+          <th style="padding:8px;">Relevant</th>
+          <th style="padding:8px;">Source</th>
+          <th style="padding:8px;">Reason</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in audit_rows %}
+        <tr style="border-bottom:1px solid var(--border, #eee); vertical-align:top;">
+          <td style="padding:8px;">{{ row.name or row.business_id }}</td>
+          <td style="padding:8px;">{% if row.relevant %}yes{% else %}no{% endif %}</td>
+          <td style="padding:8px;"><code>{{ row.source }}</code></td>
+          <td style="padding:8px;"><div class="pre-block" style="white-space:pre-wrap;">{{ row.reason }}</div></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endif %}
 {% if rep and (rep.asset_mode or rep.asset_plan_json) %}

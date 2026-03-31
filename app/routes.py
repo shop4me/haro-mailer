@@ -317,7 +317,23 @@ def haro_request_detail(request_id: int):
                 rep.send_status = "SKIPPED"
                 rep.error_message = "Skipped by admin"
                 flash("Marked as skipped", "info")
-        return render_template("haro_request_detail.html", req=req, cls=cls, rep=rep, inbound=inbound, biz=biz)
+        audit_rows = []
+        if cls and getattr(cls, "per_business_audit_json", None):
+            try:
+                audit_rows = json.loads(cls.per_business_audit_json or "[]")
+                if not isinstance(audit_rows, list):
+                    audit_rows = []
+            except (json.JSONDecodeError, TypeError):
+                audit_rows = []
+        return render_template(
+            "haro_request_detail.html",
+            req=req,
+            cls=cls,
+            rep=rep,
+            inbound=inbound,
+            biz=biz,
+            audit_rows=audit_rows,
+        )
 
 
 @bp.route("/replies")

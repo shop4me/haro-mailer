@@ -518,6 +518,8 @@ class MatchResult:
     # Lightweight hints for asset_planner (business relevance stays in classify_request)
     requires_visuals: bool = False
     visual_request_confidence: float = 0.0
+    # One row per enabled business: relevance + reason (AI, heuristic, policy, or strict_ai_relevance)
+    per_business_audit: list[dict] = field(default_factory=list)
 
 
 def _visual_request_hints_from_text(text: str) -> tuple[bool, float]:
@@ -546,13 +548,126 @@ def _visual_request_hints_from_text(text: str) -> tuple[bool, float]:
     return score >= 0.35, score
 
 
+def _audit_policy_all(enabled: list[Business], reason: str) -> list[dict]:
+    return [
+        {
+            "business_id": b.id,
+            "name": (b.name or "").strip() or ("Business %s" % b.id),
+            "relevant": False,
+            "reason": reason,
+            "source": "policy",
+        }
+        for b in enabled
+    ]
+
+
+def _audit_home_garden_routing(enabled: list[Business], chosen_id: int, policy_note: str) -> list[dict]:
+    out = []
+    for b in enabled:
+        if b.id == chosen_id:
+            out.append(
+                {
+                    "business_id": b.id,
+                    "name": (b.name or "").strip() or ("Business %s" % b.id),
+                    "relevant": True,
+                    "reason": policy_note,
+                    "source": "home_garden_policy",
+                }
+            )
+        else:
+            out.append(
+                {
+                    "business_id": b.id,
+                    "name": (b.name or "").strip() or ("Business %s" % b.id),
+                    "relevant": False,
+                    "reason": "Not selected — home/garden strong-path routes to the designated home & garden business only.",
+                    "source": "home_garden_policy",
+                }
+            )
+    return out
+
+
+def _normalize_per_business_audit(raw: object, enabled: list[Business]) -> list[dict]:
+    by_id = {b.id: b for b in enabled}
+    out: list[dict] = []
+    seen: set[int] = set()
+    if isinstance(raw, list):
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            bid = item.get("business_id")
+            if bid is None:
+                continue
+            try:
+                bid = int(bid)
+            except (TypeError, ValueError):
+                continue
+            if bid not in by_id:
+                continue
+            seen.add(bid)
+            b = by_id[bid]
+            out.append(
+                {
+                    "business_id": bid,
+                    "name": (b.name or "").strip() or ("Business %s" % bid),
+                    "relevant": bool(item.get("relevant")),
+                    "reason": str(item.get("reason") or "")[:500],
+                    "source": str(item.get("source") or "ai_classifier")[:64],
+                }
+            )
+    for b in enabled:
+        if b.id not in seen:
+            out.append(
+                {
+                    "business_id": b.id,
+                    "name": (b.name or "").strip() or ("Business %s" % b.id),
+                    "relevant": False,
+                    "reason": "No per-business line in model output (filled by system).",
+                    "source": "ai_fallback",
+                }
+            )
+    return out
+
+
+def _audit_from_heuristic_scores(scores: dict[int, float], enabled: list[Business]) -> list[dict]:
+    best_id: int | None = None
+    best_s = -1.0
+    if scores:
+        best_id, best_s = max(scores.items(), key=lambda kv: kv[1])
+    out = []
+    for b in enabled:
+        s = scores.get(b.id, 0.0)
+        strong = best_s >= 0.2 and best_id is not None and b.id == best_id
+        rel = strong
+        reason = "Keyword/heuristic score %.2f — %s" % (
+            s,
+            "best match among businesses" if strong else "not selected as best match",
+        )
+        if not scores:
+            reason = "No keyword overlap with configured business terms."
+            rel = False
+        elif best_s < 0.2:
+            reason = "No reliable keyword match (best score %.2f)." % best_s
+            rel = False
+        out.append(
+            {
+                "business_id": b.id,
+                "name": (b.name or "").strip() or ("Business %s" % b.id),
+                "relevant": rel,
+                "reason": reason,
+                "source": "keyword_heuristic",
+            }
+        )
+    return out
+
+
 def _apply_regency_niche_gate_result(
     request: HaroRequest,
     result: MatchResult,
     enabled: list[Business],
     inbound_source: str | None,
 ) -> MatchResult:
-    m, bid, reason, tags = apply_regency_niche_gate_to_match(
+    m, bid, reason, tags, audit = apply_regency_niche_gate_to_match(
         request,
         result.matched,
         result.matched_business_id,
@@ -560,6 +675,7 @@ def _apply_regency_niche_gate_result(
         inbound_source,
         result.reasoning_short,
         result.topic_tags,
+        result.per_business_audit,
     )
     if not m:
         return MatchResult(
@@ -570,6 +686,7 @@ def _apply_regency_niche_gate_result(
             [],
             result.requires_visuals,
             result.visual_request_confidence,
+            audit,
         )
     return MatchResult(
         m,
@@ -579,6 +696,7 @@ def _apply_regency_niche_gate_result(
         tags,
         result.requires_visuals,
         result.visual_request_confidence,
+        audit,
     )
 
 
@@ -590,7 +708,7 @@ def classify_request(
     hv, hc = _visual_request_hints_from_text(request.request_text or "")
     enabled = [b for b in businesses if b.enabled]
     if not enabled:
-        return MatchResult(False, None, 0.0, "No enabled businesses configured.", [], hv, hc)
+        return MatchResult(False, None, 0.0, "No enabled businesses configured.", [], hv, hc, [])
 
     # We never appear in person for anyone.
     if _requires_in_person(request.request_text):
@@ -602,6 +720,7 @@ def classify_request(
             [],
             hv,
             hc,
+            _audit_policy_all(enabled, "Policy: we do not appear in person."),
         )
     # We don't send products/gifts except for TV stations.
     if _requires_products_or_gifts(request.request_text) and not _is_tv_station(request.outlet):
@@ -613,6 +732,10 @@ def classify_request(
             [],
             hv,
             hc,
+            _audit_policy_all(
+                enabled,
+                "Policy: we do not send products or gifts except for TV station outlets.",
+            ),
         )
 
     hg = _score_home_and_garden_topic(request)
@@ -624,6 +747,11 @@ def classify_request(
     if _is_clear_home_and_garden_match(hg):
         hg_business_id = _resolve_home_garden_business(enabled)
         if hg_business_id is not None:
+            hg_audit = _audit_home_garden_routing(
+                enabled,
+                hg_business_id,
+                "Home and garden topic — designated business for this policy path.",
+            )
             return _apply_regency_niche_gate_result(
                 request,
                 MatchResult(
@@ -634,6 +762,7 @@ def classify_request(
                     ["home_garden"],
                     hv,
                     hc,
+                    hg_audit,
                 ),
                 enabled,
                 inbound_source,
@@ -648,7 +777,10 @@ def classify_request(
 
     if not ai_result:
         return _apply_regency_niche_gate_result(
-            request, _select_from_heuristic(heuristic_scores, hv, hc), enabled, inbound_source
+            request,
+            _select_from_heuristic(heuristic_scores, enabled, hv, hc),
+            enabled,
+            inbound_source,
         )
 
     best_h_id, best_h_score = max(heuristic_scores.items(), key=lambda kv: kv[1], default=(None, 0.0))
@@ -672,9 +804,19 @@ def classify_request(
     # Borderline / broad home: AI may confirm home_garden for draft-only behavior downstream.
     tags = [str(t) for t in tags if t is not None]
     reasoning = (ai_result.get("reasoning_short") or "Hybrid classification decision.")[:240]
+    audit = _normalize_per_business_audit(ai_result.get("per_business_audit"), enabled)
     return _apply_regency_niche_gate_result(
         request,
-        MatchResult(matched, chosen_id, max(0.0, min(1.0, blended)), reasoning, tags, hv, hc),
+        MatchResult(
+            matched,
+            chosen_id,
+            max(0.0, min(1.0, blended)),
+            reasoning,
+            tags,
+            hv,
+            hc,
+            audit,
+        ),
         enabled,
         inbound_source,
     )
@@ -828,15 +970,23 @@ def _heuristic_scores(text: str, businesses: list[Business]) -> dict[int, float]
 
 
 def _select_from_heuristic(
-    scores: dict[int, float], hv: bool, hc: float
+    scores: dict[int, float], enabled: list[Business], hv: bool, hc: float
 ) -> MatchResult:
+    audit = _audit_from_heuristic_scores(scores, enabled)
     if not scores:
-        return MatchResult(False, None, 0.0, "No businesses available.", [], hv, hc)
+        return MatchResult(False, None, 0.0, "No businesses available.", [], hv, hc, audit)
     business_id, score = max(scores.items(), key=lambda kv: kv[1])
     if score < 0.2:
-        return MatchResult(False, None, score, "No reliable keyword match.", [], hv, hc)
+        return MatchResult(False, None, score, "No reliable keyword match.", [], hv, hc, audit)
     return MatchResult(
-        True, business_id, score, "Keyword heuristic matched business terms.", [], hv, hc
+        True,
+        business_id,
+        score,
+        "Keyword heuristic matched business terms.",
+        [],
+        hv,
+        hc,
+        audit,
     )
 
 
@@ -894,8 +1044,11 @@ def _classify_with_openai(
         f"{hg_block}"
         "If you match primarily because of home decor, furniture, interior design, remodeling, garden, patio, cleaning, "
         "organization, or similar homeowner expertise, include the string 'home_garden' in topic_tags (along with any other tags). "
+        "Required: per_business_audit MUST be an array with EXACTLY one object per business in BUSINESSES. Each object: "
+        "business_id (int, must match a business id from the list), relevant (bool), reason (short string explaining why "
+        "this query is or is not relevant to that business's offerings). "
         "Return ONLY a single JSON object, no other text or markdown. Keys: matched (bool), matched_business_id (int or null), "
-        "confidence (0-1), reasoning_short (string), topic_tags (array of strings)."
+        "confidence (0-1), reasoning_short (string), topic_tags (array of strings), per_business_audit (array of objects)."
     )
     try:
         client = OpenAI(api_key=settings.openai_api_key)
