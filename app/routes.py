@@ -343,6 +343,7 @@ def replies():
         rows = (
             db.scalars(
                 select(Reply)
+                .where(Reply.send_status == "SENT")
                 .options(joinedload(Reply.business), joinedload(Reply.haro_request))
                 .order_by(desc(Reply.id))
                 .limit(500)

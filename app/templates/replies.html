@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block body %}
 <h2 class="page-title">Replies</h2>
-<p style="margin:-8px 0 16px; color:var(--text-muted); font-size:0.9rem;">Matched queries get a reply row here. When auto-send is enabled (Settings + business &ldquo;Auto-send&rdquo;), messages go out automatically and show <strong>SENT</strong> with a <strong>Sent at</strong> timestamp. Home &amp; garden&ndash;tagged matches stay as drafts for manual send for other businesses; <strong>Regency Shop</strong> can auto-send those too when configured. <strong>Hover the request number</strong> to preview the query.</p>
+<p style="margin:-8px 0 16px; color:var(--text-muted); font-size:0.9rem;">Outbound emails that have already been sent. Drafts, skipped rows, and pending sends are not listed here&mdash;open a request from the <a href="{{ url_for('main.haro_requests') }}" class="link">Requests</a> list to review or send. <strong>Hover the request number</strong> to preview the query.</p>
 <div class="table-wrap replies-page-table">
   <table class="data-table replies-data-table">
     <thead>
@@ -12,7 +12,6 @@
         <th>Status</th>
         <th>Sent at</th>
         <th>Error</th>
-        <th>Actions</th>
       </tr>
     </thead>
     <tbody>
@@ -33,18 +32,9 @@
         <td><span class="badge badge-{{ row.send_status|lower }}">{{ row.send_status }}</span></td>
         <td>{{ row.sent_at|format_datetime or '—' }}</td>
         <td>{{ (row.error_message or '')[:80] }}{% if row.error_message and row.error_message|length > 80 %}…{% endif %}</td>
-        <td>
-          {% if row.send_status == 'DRAFT' and row.business_id %}
-          <form method="post" action="{{ url_for('main.reply_send', reply_id=row.id) }}" class="inline-form">
-            <button type="submit" class="btn btn-small btn-primary">Send</button>
-          </form>
-          {% else %}
-          —
-          {% endif %}
-        </td>
       </tr>
       {% else %}
-      <tr><td colspan="7" class="empty-state">No replies yet.</td></tr>
+      <tr><td colspan="6" class="empty-state">No sent replies yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>
