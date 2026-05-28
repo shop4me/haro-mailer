@@ -773,9 +773,14 @@ def classify_request(
         )
 
     heuristic_scores = _heuristic_scores(request.request_text, enabled)
+    founder_match = _try_founder_expert_match(request, enabled, hv, hc)
     ai_result = _classify_with_openai(request, enabled, hg_score_result=hg)
 
     if not ai_result:
+        if founder_match:
+            return _apply_regency_niche_gate_result(
+                request, founder_match, enabled, inbound_source
+            )
         return _apply_regency_niche_gate_result(
             request,
             _select_from_heuristic(heuristic_scores, enabled, hv, hc),
@@ -783,28 +788,22 @@ def classify_request(
             inbound_source,
         )
 
-    best_h_id, best_h_score = max(heuristic_scores.items(), key=lambda kv: kv[1], default=(None, 0.0))
-    chosen_id = ai_result.get("matched_business_id")
-    ai_conf = float(ai_result.get("confidence", 0.0))
-    if chosen_id in heuristic_scores:
-        blended = (ai_conf + heuristic_scores[chosen_id]) / 2
-    else:
-        blended = ai_conf * 0.7 + best_h_score * 0.3
-        if blended < 0.45 and best_h_id is not None:
-            chosen_id = best_h_id
-
-    matched = bool(ai_result.get("matched")) and chosen_id is not None
-    if blended < 0.35:
-        matched = False
-        chosen_id = None
+    audit = _normalize_per_business_audit(ai_result.get("per_business_audit"), enabled)
+    audit = _apply_founder_expert_audit_patch(request, audit, enabled)
+    matched, chosen_id, blended, reasoning = _reconcile_ai_decision(
+        ai_result, audit, heuristic_scores, enabled
+    )
+    if not matched and founder_match:
+        return _apply_regency_niche_gate_result(
+            request, founder_match, enabled, inbound_source
+        )
 
     tags = ai_result.get("topic_tags") or []
     if not isinstance(tags, list):
         tags = []
-    # Borderline / broad home: AI may confirm home_garden for draft-only behavior downstream.
     tags = [str(t) for t in tags if t is not None]
-    reasoning = (ai_result.get("reasoning_short") or "Hybrid classification decision.")[:240]
-    audit = _normalize_per_business_audit(ai_result.get("per_business_audit"), enabled)
+    if matched and _is_founder_expert_query(request.request_text or "") and "founder_expert" not in tags:
+        tags.append("founder_expert")
     return _apply_regency_niche_gate_result(
         request,
         MatchResult(
@@ -954,18 +953,269 @@ def _is_tv_station(outlet: str | None) -> bool:
     return bool(tv_indicators)
 
 
+def _business_catalog_terms(b: Business) -> list[str]:
+    terms: list[str] = []
+    for k in (b.keywords or "").split(","):
+        k = k.strip().lower()
+        if k:
+            terms.append(k)
+    for blob in (b.nature_of_business or "", b.name or ""):
+        for w in re.findall(r"[a-z]{3,}", blob.lower()):
+            if w not in {"the", "and", "for", "with", "all", "our", "your", "shop", "store"}:
+                terms.append(w)
+    seen: set[str] = set()
+    out: list[str] = []
+    for t in terms:
+        if t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out
+
+
+_FOUNDER_EXPERT_RE = re.compile(
+    r"\b("
+    r"brand founders?|business owners?|company founders?|co-?founders?|"
+    r"entrepreneurs?|small business owners?|startup founders?|"
+    r"e-?commerce founders?|industry experts?|"
+    r"swimwear designers?|fashion designers?|"
+    r"designers?\s*/\s*brand founders?|"
+    r"expert advice|expert insight|expert quote"
+    r")\b",
+    re.I,
+)
+
+
+def _is_founder_expert_query(text: str) -> bool:
+    if not (text or "").strip():
+        return False
+    lower = text.lower()
+    if _FOUNDER_EXPERT_RE.search(text):
+        return True
+    if re.search(r"\bfounders?\b", lower) and re.search(
+        r"\b(designer|expert|advice|quote|insight|perspective|commentary|entrepreneur)\b", lower
+    ):
+        return True
+    if "business owner" in lower or "entrepreneur" in lower:
+        return True
+    return False
+
+
+def _vertical_overlap_score(b: Business, text: str) -> float:
+    lowered = (text or "").lower()
+    if not lowered:
+        return 0.0
+    score = 0.0
+    for term in _business_catalog_terms(b):
+        if len(term) < 3:
+            continue
+        if " " in term or "-" in term:
+            if term in lowered:
+                score += 0.18
+        elif re.search(r"\b" + re.escape(term) + r"\b", lowered):
+            score += 0.14
+    return min(1.0, score)
+
+
+def _audit_from_vertical_scores(
+    scores: dict[int, float],
+    enabled: list[Business],
+    source: str,
+    reason_fmt: str,
+    min_relevant: float = 0.2,
+) -> list[dict]:
+    out = []
+    for b in enabled:
+        s = scores.get(b.id, 0.0)
+        rel = s >= min_relevant
+        out.append(
+            {
+                "business_id": b.id,
+                "name": (b.name or "").strip() or ("Business %s" % b.id),
+                "relevant": rel,
+                "reason": reason_fmt % s if rel else "Vertical overlap score %.2f — below threshold." % s,
+                "source": source,
+            }
+        )
+    return out
+
+
+def _try_founder_expert_match(
+    request: HaroRequest, enabled: list[Business], hv: bool, hc: float
+) -> MatchResult | None:
+    """Strong keyword + founder/expert ask → match the best-fit business without home bias."""
+    text = request.request_text or ""
+    if not _is_founder_expert_query(text):
+        return None
+    scores = {b.id: _vertical_overlap_score(b, text) for b in enabled}
+    ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
+    min_overlap = 0.14 if _is_founder_expert_query(text) else 0.2
+    if not ranked or ranked[0][1] < min_overlap:
+        return None
+    best_id, best_score = ranked[0]
+    second = ranked[1][1] if len(ranked) > 1 else 0.0
+    if best_score < 0.24 and second >= best_score - 0.04:
+        return None
+    audit = _audit_from_vertical_scores(
+        scores,
+        enabled,
+        "founder_expert",
+        "Founder/expert query aligns with this business (overlap %.2f).",
+        min_relevant=min_overlap,
+    )
+    return MatchResult(
+        True,
+        best_id,
+        min(0.92, 0.72 + best_score * 0.25),
+        "Founder/expert query matches business vertical (founder-expert path).",
+        ["founder_expert"],
+        hv,
+        hc,
+        audit,
+    )
+
+
+def _apply_founder_expert_audit_patch(
+    request: HaroRequest, audit: list[dict], enabled: list[Business]
+) -> list[dict]:
+    if not _is_founder_expert_query(request.request_text or ""):
+        return audit
+    by_id = {b.id: b for b in enabled}
+    patched = []
+    for row in audit:
+        bid = row.get("business_id")
+        b = by_id.get(bid) if bid is not None else None
+        if b is None:
+            patched.append(row)
+            continue
+        overlap = _vertical_overlap_score(b, request.request_text or "")
+        min_overlap = 0.14 if _is_founder_expert_query(request.request_text or "") else 0.2
+        if overlap >= min_overlap and not row.get("relevant"):
+            patched.append(
+                {
+                    **row,
+                    "relevant": True,
+                    "reason": (
+                        "Founder/expert query + business vertical overlap (%.2f); marked relevant."
+                        % overlap
+                    )[:500],
+                    "source": "founder_expert_patch",
+                }
+            )
+        else:
+            patched.append(row)
+    return patched
+
+
+def _reconcile_ai_decision(
+    ai_result: dict,
+    audit: list[dict],
+    heuristic_scores: dict[int, float],
+    enabled: list[Business],
+) -> tuple[bool, int | None, float, str]:
+    """Prefer per-business audit + heuristics over a wrong global matched=false."""
+    ai_matched = bool(ai_result.get("matched"))
+    ai_id = ai_result.get("matched_business_id")
+    try:
+        ai_id = int(ai_id) if ai_id is not None else None
+    except (TypeError, ValueError):
+        ai_id = None
+    ai_conf = float(ai_result.get("confidence", 0.0))
+    reasoning = (ai_result.get("reasoning_short") or "Hybrid classification decision.")[:240]
+
+    relevant_ids = [int(r["business_id"]) for r in audit if r.get("relevant") and r.get("business_id") is not None]
+
+    def _blend(bid: int) -> float:
+        h = heuristic_scores.get(bid, 0.0)
+        return min(1.0, (ai_conf + h) / 2 if ai_matched and bid == ai_id else max(ai_conf * 0.55, h) + 0.12)
+
+    if ai_matched and ai_id is not None and ai_id in relevant_ids:
+        return True, ai_id, _blend(ai_id), reasoning
+
+    if ai_matched and ai_id is not None and relevant_ids and ai_id not in relevant_ids:
+        best = max(relevant_ids, key=lambda i: heuristic_scores.get(i, 0.0))
+        return True, best, _blend(best), "Audit override: matched business not relevant; using best audit fit."
+
+    if relevant_ids:
+        best = max(relevant_ids, key=lambda i: heuristic_scores.get(i, 0.0))
+        if heuristic_scores.get(best, 0.0) >= 0.12 or len(relevant_ids) == 1:
+            return (
+                True,
+                best,
+                _blend(best),
+                reasoning or "Matched from per-business audit (multi-vertical).",
+            )
+
+    if ai_matched and ai_id is not None:
+        blended = _blend(ai_id)
+        if blended >= 0.35:
+            return True, ai_id, blended, reasoning
+
+    return False, None, ai_conf, reasoning
+
+
+def _classifier_system_prompt() -> str:
+    return (
+        "You classify HARO journalist queries against a MULTI-BUSINESS portfolio. "
+        "Each business has its own niche (nature_of_business and keywords). "
+        "Evaluate EVERY business independently — do NOT apply one business's niche to another. "
+        "CRITICAL: When a query seeks founders, brand founders, business owners, entrepreneurs, "
+        "designers, or industry experts, mark a business RELEVANT if its nature_of_business and keywords "
+        "align with the query topic — the contact can respond as the founder/expert even when the query "
+        "does not mention 'home' or 'lifestyle'. "
+        "Example: swimwear designers/brand founders → relevant for a swimwear brand; NOT relevant for a furniture store. "
+        "Pick matched_business_id as the single BEST fit among businesses marked relevant. "
+        "Reject only when no business could credibly answer. "
+        "Global exclusions (all businesses): in-person-only participation; unrelated sectors "
+        "(finance, crypto, legal SaaS, supplements, etc.) when that is the main topic. "
+        "We do not send products or gifts except for TV station outlets."
+    )
+
+
+def _classifier_user_prompt(
+    request: HaroRequest,
+    hg_score_result: HomeGardenScoreResult | None,
+) -> str:
+    outlet_info = (
+        f" Outlet for this request: {request.outlet or 'unknown'}."
+        if request.outlet
+        else " No outlet specified."
+    )
+    founder_note = ""
+    if _is_founder_expert_query(request.request_text or ""):
+        founder_note = (
+            "\nFOUNDER/EXPERT QUERY DETECTED: reporters want a founder, owner, entrepreneur, designer, "
+            "or credentialed expert to quote. Match any business whose vertical fits — do not require "
+            "home/lifestyle unless that is the business's niche.\n"
+        )
+    hg_block = ""
+    hg = hg_score_result
+    if hg is not None:
+        hg_block = (
+            f"\nHome/garden heuristic (applies ONLY to home/furniture/garden businesses): "
+            f"band={hg.decision_band}, net_score={hg.total_score:.2f}. "
+            f"Signals: strong={hg.matched_strong_terms}, medium={hg.matched_medium_terms}, "
+            f"negatives={hg.matched_negative_terms}. "
+            "Use this hint only for businesses in home decor, furniture, interior, garden, or patio — "
+            "ignore it for fashion, swimwear, events, or other non-home businesses.\n"
+        )
+    return (
+        "Classify only the QUERY below against each business in BUSINESSES.\n"
+        "Rules:\n"
+        "- per_business_audit: EXACTLY one entry per business with business_id, relevant (bool), reason.\n"
+        "- relevant=true when this business's founder/expert could credibly respond (including founder/expert asks).\n"
+        "- matched=true only if at least one business is relevant; matched_business_id = best single fit.\n"
+        "- topic_tags: optional strings (e.g. home_garden for home businesses, founder_expert for founder asks).\n"
+        f"{outlet_info}{founder_note}{hg_block}"
+        "Return ONLY JSON: matched, matched_business_id, confidence, reasoning_short, topic_tags, per_business_audit."
+    )
+
+
 def _heuristic_scores(text: str, businesses: list[Business]) -> dict[int, float]:
-    lowered = text.lower()
-    scores: dict[int, float] = {}
-    for b in businesses:
-        score = 0.0
-        keys = [k.strip().lower() for k in (b.keywords or "").split(",") if k.strip()]
-        for key in keys:
-            if key in lowered:
-                score += 0.12
-        if (b.nature_of_business or "").lower() in lowered:
-            score += 0.2
-        scores[b.id] = min(score, 1.0)
+    scores = {b.id: _vertical_overlap_score(b, text) for b in businesses}
+    if _is_founder_expert_query(text):
+        for b in businesses:
+            if scores[b.id] >= 0.14:
+                scores[b.id] = min(1.0, scores[b.id] + 0.22)
     return scores
 
 
@@ -1006,66 +1256,14 @@ def _classify_with_openai(
         }
         for b in businesses
     ]
-    outlet_info = f" Outlet for this request: {request.outlet or 'unknown'}." if request.outlet else " No outlet specified."
-
-    hg = hg_score_result
-    hg_block = ""
-    if hg is not None:
-        hg_block = (
-            f"\nHome/garden heuristic (pre-score): band={hg.decision_band}, net_score={hg.total_score:.2f}. "
-            f"Matched signals: strong={hg.matched_strong_terms}, medium={hg.matched_medium_terms}, "
-            f"weak={hg.matched_weak_terms}, negatives={hg.matched_negative_terms}.\n"
-        )
-        if hg.decision_band == "borderline":
-            hg_block += (
-                "This query is BORDERLINE for home/lifestyle: prefer inclusion if a credible quote or expertise "
-                "angle exists for home decor, furniture, interior design, remodeling, organization, cleaning, "
-                "seasonal home, garden, patio, or homeowner lifestyle. Do not force a match for unrelated sectors.\n"
-            )
-        elif hg.decision_band == "clear_non_match":
-            hg_block += (
-                "Heuristic suggests this is likely NOT a home/garden lifestyle query unless the query text clearly "
-                "implies decor, design, remodeling, spaces, garden, or similar—then match.\n"
-            )
-
-    prompt = (
-        "You are classifying only the QUERY below (the reporter's actual request). "
-        "Decide: can any of the given businesses reply to this query? Only match if the query is relevant to that business.\n"
-        "Domain breadth: this operation prioritizes broad but relevant HOME and LIFESTYLE topics — including home decor, "
-        "furniture, interior design, space planning, remodeling, renovation, cleaning, organization, storage, seasonal home, "
-        "outdoor living, patio, backyard, garden, and homeowner lifestyle angles. Favor inclusion when a plausible expert "
-        "quote or practical homeowner angle exists.\n"
-        "Exclusions: reject obvious junk unrelated to home living even if the word 'home' appears — e.g. meal kits, "
-        "finance/mortgages/insurance as the main topic, crypto, legal/business software, recruiting, supplements, "
-        "automotive, pure tech/SaaS, gambling, etc.\n"
-        "Rules: We never appear in person (do not match if the query requires in-person, studio, video/phone interview, or event attendance). "
-        "We do not send products or gifts EXCEPT when the outlet is a TV station—then product/gift requests are allowed."
-        f"{outlet_info}\n"
-        f"{hg_block}"
-        "If you match primarily because of home decor, furniture, interior design, remodeling, garden, patio, cleaning, "
-        "organization, or similar homeowner expertise, include the string 'home_garden' in topic_tags (along with any other tags). "
-        "Required: per_business_audit MUST be an array with EXACTLY one object per business in BUSINESSES. Each object: "
-        "business_id (int, must match a business id from the list), relevant (bool), reason (short string explaining why "
-        "this query is or is not relevant to that business's offerings). "
-        "Return ONLY a single JSON object, no other text or markdown. Keys: matched (bool), matched_business_id (int or null), "
-        "confidence (0-1), reasoning_short (string), topic_tags (array of strings), per_business_audit (array of objects)."
-    )
+    prompt = _classifier_user_prompt(request, hg_score_result)
     try:
         client = OpenAI(api_key=settings.openai_api_key)
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             temperature=0,
             messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a HARO classifier balancing recall and precision for HOME and LIFESTYLE relevance. "
-                        "Only the query matters for the decision. Match when an expert could credibly answer from home "
-                        "decor, furniture, design, remodeling, organization, cleaning, garden, patio, or homeowner life. "
-                        "Reject finance, insurance-as-main-topic, meal kits, crypto, unrelated SaaS, legal industry, "
-                        "automotive, supplements, and similar. We do not appear in person. We do not send products or gifts except for TV stations."
-                    ),
-                },
+                {"role": "system", "content": _classifier_system_prompt()},
                 {
                     "role": "user",
                     "content": (
